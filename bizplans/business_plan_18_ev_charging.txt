@@ -1,0 +1,24 @@
+BUSINESS PLAN: ChargePoint Infrastructure Solutions
+
+Executive Summary:
+ChargePoint designs, installs, and operates EV charging networks for commercial properties, municipalities, and fleet operators, generating recurring revenue from charging fees and network management.
+
+Target Market: Shopping centers, apartment complexes, office parks, municipal parking, logistics companies with electric fleets. Properties with 100+ parking spaces in urban/suburban markets.
+
+Total Addressable Market: $42B global EV charging infrastructure market by 2030, US market $18B. Our serviceable market: $850M across major metro areas.
+
+Revenue Projections:
+Year 1: $3.2M (200 chargers installed)
+Year 2: $7.8M (550 chargers)
+Year 3: $16M (1,200 chargers)
+Year 4: $28M (2,000 chargers)
+Year 5: $48M (3,200 chargers)
+
+Profit Projections (EBITDA):
+Year 1: -$400K (infrastructure investment)
+Year 2: $1.2M (15% margin)
+Year 3: $3.4M (21% margin)
+Year 4: $7M (25% margin)
+Year 5: $13.4M (28% margin)
+
+Competitive Advantage: Turnkey solutions, shared revenue model requiring no upfront capital from property owners, AI-optimized pricing, preventive maintenance, grid integration expertise.

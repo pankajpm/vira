@@ -1,0 +1,38 @@
+seed_urls:
+  - https://a16z.com/ai/
+  - https://a16z.com/enterprise/
+  - https://a16z.com/crypto/
+  - https://a16z.com/bio-health/
+  - https://a16z.com/consumer/
+  - https://a16z.com/fintech/
+  - https://a16z.com/infrastructure/
+  - https://a16z.com/american-dynamism/
+  - https://a16z.com/games/
+  - https://a16z.com/portfolio/
+  - https://a16z.com/investment-list/
+  - https://a16z.com/investments/
+  - https://a16z.com/seed/
+  - https://a16z.com/growth/
+  - https://speedrun.a16z.com/
+  - https://a16z.com/posts/
+  - https://a16z.com/podcast/
+
+allowed_domains:
+  - a16z.com
+
+exclusion_patterns:
+  - "?s="
+  - "/tag/"
+  - "/category/"
+  - "/author/"
+
+max_pages: 400
+download_delay: 1.0
+concurrent_requests: 2
+user_agent: "VIRAPrototypeBot/0.1 (+https://example.com/contact)"
+output_dir: ./data/raw
+processed_dir: ./data/processed
+metadata:
+  organization: a16z
+  iteration: 1
+

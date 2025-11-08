@@ -1,0 +1,24 @@
+BUSINESS PLAN: CoreBuild Data Center Construction
+
+Executive Summary:
+CoreBuild is a specialized general contractor focused exclusively on data center construction and critical infrastructure, serving hyperscalers, colocation providers, and enterprise clients requiring mission-critical facilities with 99.999% uptime requirements.
+
+Target Market: Cloud providers, colocation operators, financial services, healthcare systems, AI/ML companies building GPU clusters. Projects range $20M-$200M primarily in tier-3 and tier-4 markets with power availability.
+
+Total Addressable Market: $45B annual global data center construction market, US represents $22B. Our target serviceable market: $4.2B in secondary markets (Phoenix, Dallas, Atlanta, Virginia).
+
+Revenue Projections:
+Year 1: $32M (2 projects)
+Year 2: $68M (3 projects)
+Year 3: $125M (5 projects)
+Year 4: $210M (7 projects)
+Year 5: $340M (10 projects)
+
+Profit Projections (EBITDA):
+Year 1: $2.2M (7% margin)
+Year 2: $5.4M (8% margin)
+Year 3: $11.2M (9% margin)
+Year 4: $21M (10% margin)
+Year 5: $37.4M (11% margin)
+
+Competitive Advantage: Pre-qualified subcontractor network, expedited permitting expertise, prefabrication capabilities reducing schedules by 25%, proven cooling designs, relationships with equipment suppliers enabling faster delivery.
