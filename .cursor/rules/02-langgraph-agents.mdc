@@ -1,0 +1,646 @@
+# LangGraph Agent Development Rules
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: LangGraph state machines, agent nodes, and workflow orchestration
+
+---
+
+## LangGraph Complete Template
+
+Copy this template for all new agents to prevent API hallucinations:
+
+```python
+"""Agent module for [purpose].
+
+Iteration X: [Description]
+"""
+from __future__ import annotations
+
+import logging
+from typing import TypedDict, Literal
+
+from langgraph.graph import StateGraph, END
+
+logger = logging.getLogger(__name__)
+
+
+class MyAgentState(TypedDict, total=False):
+    """State for my agent workflow."""
+    # Required fields
+    input_data: str
+    
+    # Optional fields
+    result: dict | None
+    error: str | None
+
+
+def node1(state: MyAgentState) -> MyAgentState:
+    """First processing step."""
+    logger.info("Step 1: Processing", extra={"phase": "node1"})
+    
+    try:
+        # Your logic here
+        state["result"] = process(state["input_data"])
+        logger.info("Step 1 complete", extra={"phase": "node1"})
+    except Exception as e:
+        logger.error(f"Step 1 failed: {e}", extra={"phase": "node1"})
+        state["error"] = str(e)
+    
+    return state
+
+
+def should_continue(state: MyAgentState) -> Literal["next_node", "end"]:
+    """Determine next step based on state."""
+    if state.get("error"):
+        return "end"
+    return "next_node"
+
+
+def create_agent_graph():
+    """Create and compile the agent workflow graph.
+    
+    Graph Flow:
+    1. node1 → Process input data
+    2. should_continue → Route based on success/error
+       - Success → next_node
+       - Error → END
+    
+    Returns:
+        Compiled state graph ready for execution
+    """
+    workflow = StateGraph(MyAgentState)
+    
+    # Add nodes
+    workflow.add_node("node1", node1)
+    
+    # Set entry point
+    workflow.set_entry_point("node1")
+    
+    # Add routing
+    workflow.add_conditional_edges(
+        "node1",
+        should_continue,
+        {
+            "next_node": "next_node",
+            "end": END,
+        }
+    )
+    
+    return workflow.compile()
+
+
+# Usage
+if __name__ == "__main__":
+    graph = create_agent_graph()
+    initial_state: MyAgentState = {"input_data": "test"}
+    result = graph.invoke(initial_state)
+    print(result)
+```
+
+---
+
+## State Management
+
+### Use TypedDict for AgentState
+
+Define agent state using `TypedDict` with `total=False` for optional fields.
+
+```python
+from typing import TypedDict, Literal
+
+class AgentState(TypedDict, total=False):
+    # Required fields (total=True by default for these)
+    company_name: str
+    plan_summary: str
+    query: str
+    
+    # Optional fields (total=False allows these to be missing)
+    initial_docs: list[dict]
+    initial_explanation: dict | None
+    reflection_result: dict | None
+    research_results: list[dict]
+    final_explanation: dict | None
+    overall_confidence: float
+    iteration_count: int
+    error: str | None
+```
+
+**Why TypedDict?**
+- Type checking at development time
+- Clear documentation of state structure
+- Better IDE autocomplete
+- Validates state shape
+
+### Return Updated State, Never Mutate
+
+Node functions must return a new or updated state dict, not mutate in place.
+
+```python
+# BAD - Mutating state in place
+def my_node(state: AgentState) -> AgentState:
+    state["result"] = compute_result()  # Mutation
+    return state
+
+# GOOD - Returning updated state
+def my_node(state: AgentState) -> AgentState:
+    result = compute_result()
+    return {**state, "result": result}  # New dict with update
+
+# ALSO GOOD - Explicit update
+def my_node(state: AgentState) -> AgentState:
+    state["result"] = compute_result()
+    return state  # LangGraph handles this correctly
+```
+
+**Note**: LangGraph handles state updates correctly even with direct assignment, but being explicit about updates is clearer.
+
+### Use Literal Types for Routing Decisions
+
+Router functions should return `Literal` unions of possible next nodes.
+
+```python
+from typing import Literal
+
+def should_research(state: AgentState) -> Literal["research", "end"]:
+    """Determine if research is needed based on confidence."""
+    confidence = state.get("overall_confidence", 1.0)
+    
+    if confidence < 0.7:
+        return "research"
+    return "end"
+```
+
+**Benefits**:
+- Type checker validates all routes exist
+- Prevents typos in route names
+- Self-documenting code
+
+---
+
+## Node Functions
+
+### Standard Node Signature
+
+All node functions must follow this signature pattern.
+
+```python
+def node_name(state: AgentState) -> AgentState:
+    """
+    Brief description of what this node does.
+    
+    Args:
+        state: Current agent state with required fields
+        
+    Returns:
+        Updated state with new fields populated
+    """
+    # Node implementation
+    return state
+```
+
+### Add Observability with Structured Logging
+
+Use structured logging with semantic phase tags:
+
+```python
+import logging
+logger = logging.getLogger(__name__)
+
+def research_node(state: AgentState) -> AgentState:
+    """Conduct research to fill information gaps."""
+    logger.info("Running research", extra={"phase": "research"})
+    
+    gaps = state.get("information_gaps", [])
+    logger.info("Found information gaps", extra={"phase": "research", "gaps_count": len(gaps)})
+    
+    try:
+        results = conduct_research(gaps)
+        logger.info("Research complete", extra={"phase": "research", "results_count": len(results)})
+        state["research_results"] = results
+    except Exception as e:
+        logger.error("Research failed", extra={"phase": "research", "error": str(e)})
+        state["error"] = str(e)
+    
+    return state
+```
+
+**Optional Console Formatter** (for development):
+```python
+class EmojiConsoleFormatter(logging.Formatter):
+    PHASE_ICONS = {
+        "analysis": "🔍",
+        "research": "🔬", 
+        "reflection": "🤔",
+    }
+    
+    def format(self, record):
+        phase = record.__dict__.get("phase", "")
+        icon = self.PHASE_ICONS.get(phase, "")
+        return f"{icon} {record.getMessage()}" if icon else record.getMessage()
+```
+
+**Standard Phase Names**:
+- `analysis` - Analysis/search operations
+- `research` - Research operations
+- `reflection` - Reflection/thinking
+- `regeneration` - Regeneration/retry
+
+### Handle Errors Gracefully
+
+Never raise exceptions that break the graph. Set `state["error"]` instead.
+
+```python
+def analysis_node(state: AgentState) -> AgentState:
+    """Perform alignment analysis."""
+    print("🔍 Running analysis...")
+    
+    try:
+        result = perform_analysis(state["plan_summary"])
+        state["analysis_result"] = result
+        print("   ✓ Analysis complete")
+        
+    except Exception as e:
+        print(f"   ⚠️  Analysis error: {e}")
+        state["error"] = str(e)
+        state["analysis_result"] = None
+        # Return state to allow graph to continue
+        
+    return state
+```
+
+**Why?**
+- Allows graph to handle errors gracefully
+- Enables conditional routing based on errors
+- Provides partial results when possible
+- Better debugging with state inspection
+
+### Return State Even on Errors
+
+Always return state, even when errors occur, to allow graph continuation.
+
+```python
+def risky_node(state: AgentState) -> AgentState:
+    """Node that might fail."""
+    try:
+        result = risky_operation()
+        state["result"] = result
+    except Exception as e:
+        logger.error(f"Node failed: {e}", exc_info=True)
+        state["error"] = str(e)
+        # Still return state - don't raise
+    
+    return state
+```
+
+---
+
+## Graph Construction
+
+### Use StateGraph, Not Graph
+
+Always use `StateGraph` with your state type.
+
+```python
+from langgraph.graph import StateGraph, END
+
+# GOOD - StateGraph with typed state
+workflow = StateGraph(AgentState)
+
+# BAD - Generic Graph
+from langgraph.graph import Graph
+workflow = Graph()  # No type safety
+```
+
+### Set Entry Point Explicitly
+
+Always specify the entry point node.
+
+```python
+workflow = StateGraph(AgentState)
+
+# Add nodes
+workflow.add_node("initial_analysis", initial_analysis_node)
+workflow.add_node("reflection", reflection_node)
+
+# Set entry point
+workflow.set_entry_point("initial_analysis")
+```
+
+### Use add_conditional_edges for Routing
+
+Implement conditional routing with `add_conditional_edges`.
+
+```python
+# Add conditional routing
+workflow.add_conditional_edges(
+    "reflection",  # Source node
+    should_research,  # Router function
+    {
+        "research": "research",  # If returns "research", go to research node
+        "end": END,  # If returns "end", terminate
+    }
+)
+```
+
+### Compile Graph Before Execution
+
+Always compile the graph before running.
+
+```python
+def create_agent_graph():
+    """Create and compile the agent workflow graph."""
+    workflow = StateGraph(AgentState)
+    
+    # Add nodes
+    workflow.add_node("analysis", analysis_node)
+    workflow.add_node("reflection", reflection_node)
+    
+    # Set entry point
+    workflow.set_entry_point("analysis")
+    
+    # Add edges
+    workflow.add_edge("analysis", "reflection")
+    workflow.add_edge("reflection", END)
+    
+    # Compile and return
+    return workflow.compile()
+
+# Usage
+graph = create_agent_graph()
+result = graph.invoke(initial_state)
+```
+
+---
+
+## Conditional Routing
+
+### Router Function Pattern
+
+Router functions determine the next node based on state.
+
+```python
+def should_reflect_again(state: AgentState) -> Literal["reflection", "end"]:
+    """Determine if another reflection pass is needed.
+    
+    Args:
+        state: Current agent state
+        
+    Returns:
+        "reflection" if another pass needed, "end" otherwise
+    """
+    iteration = state.get("iteration_count", 0)
+    max_iterations = 3
+    
+    if iteration >= max_iterations:
+        print(f"   🛑 Max iterations ({max_iterations}) reached")
+        return "end"
+    
+    confidence = state.get("overall_confidence", 1.0)
+    if confidence < 0.7:
+        print(f"   🔄 Low confidence ({confidence:.2f}) - reflecting again")
+        return "reflection"
+    
+    print(f"   ✓ High confidence ({confidence:.2f}) - ending")
+    return "end"
+```
+
+### Always Include END in Routes
+
+Every routing decision should have a path to `END`.
+
+```python
+from langgraph.graph import END
+
+workflow.add_conditional_edges(
+    "node_name",
+    router_function,
+    {
+        "continue": "next_node",
+        "retry": "node_name",  # Loop back
+        "end": END,  # Always provide END route
+    }
+)
+```
+
+### Document Routing Logic
+
+Add clear docstrings explaining routing decisions.
+
+```python
+def route_after_research(state: AgentState) -> Literal["regenerate", "end"]:
+    """Route after research based on results quality.
+    
+    Routing Logic:
+    - If research found new information → "regenerate"
+    - If no new information found → "end"
+    - If error occurred → "end" (graceful termination)
+    
+    Args:
+        state: Agent state with research_results
+        
+    Returns:
+        Next node name or END
+    """
+    if state.get("error"):
+        return "end"
+    
+    results = state.get("research_results", [])
+    if results and len(results) > 0:
+        return "regenerate"
+    
+    return "end"
+```
+
+---
+
+## Graph Execution
+
+### Invoke with Initial State
+
+Execute graph with properly typed initial state.
+
+```python
+# Create initial state
+initial_state: AgentState = {
+    "company_name": "Acme Corp",
+    "plan_summary": "AI-powered analytics platform...",
+    "query": "Analyze alignment with a16z",
+    "iteration_count": 0,
+}
+
+# Execute graph
+graph = create_agent_graph()
+final_state = graph.invoke(initial_state)
+
+# Access results
+if "error" in final_state:
+    print(f"Error: {final_state['error']}")
+else:
+    result = final_state.get("final_explanation")
+```
+
+### Stream Intermediate Results
+
+Use streaming for real-time progress updates.
+
+```python
+graph = create_agent_graph()
+
+# Stream intermediate states
+for state in graph.stream(initial_state):
+    node_name = list(state.keys())[0]
+    node_state = state[node_name]
+    
+    print(f"Completed node: {node_name}")
+    
+    # Send progress update to frontend
+    await websocket.send_json({
+        "type": "progress",
+        "node": node_name,
+        "state": node_state
+    })
+```
+
+---
+
+## Error Handling in Graphs
+
+### Graceful Degradation
+
+Design graphs to continue even when nodes fail.
+
+```python
+def analysis_node(state: AgentState) -> AgentState:
+    """Analysis node with fallback."""
+    try:
+        result = perform_analysis(state["plan_summary"])
+        state["analysis_result"] = result
+    except Exception as e:
+        logger.error(f"Analysis failed: {e}")
+        # Set error but provide fallback
+        state["error"] = str(e)
+        state["analysis_result"] = get_default_analysis()
+    
+    return state
+
+def router_with_error_handling(state: AgentState) -> Literal["continue", "end"]:
+    """Router that handles error states."""
+    if state.get("error"):
+        print("   ⚠️  Error detected - ending gracefully")
+        return "end"
+    
+    return "continue"
+```
+
+### State Validation
+
+Validate state before critical operations.
+
+```python
+def critical_node(state: AgentState) -> AgentState:
+    """Node that requires specific state fields."""
+    # Validate required fields
+    required_fields = ["company_name", "plan_summary"]
+    missing = [f for f in required_fields if f not in state]
+    
+    if missing:
+        error_msg = f"Missing required fields: {missing}"
+        print(f"   ❌ {error_msg}")
+        state["error"] = error_msg
+        return state
+    
+    # Proceed with operation
+    ...
+    return state
+```
+
+---
+
+## Best Practices
+
+### Keep Nodes Focused
+
+Each node should have a single, clear responsibility.
+
+```python
+# GOOD - Single responsibility
+def retrieve_docs_node(state: AgentState) -> AgentState:
+    """Retrieve relevant documents from vector store."""
+    docs = vector_store.search(state["query"])
+    state["retrieved_docs"] = docs
+    return state
+
+def analyze_docs_node(state: AgentState) -> AgentState:
+    """Analyze retrieved documents."""
+    analysis = analyze(state["retrieved_docs"])
+    state["analysis"] = analysis
+    return state
+
+# BAD - Multiple responsibilities
+def retrieve_and_analyze_node(state: AgentState) -> AgentState:
+    """Retrieve and analyze documents."""  # Too much in one node
+    docs = vector_store.search(state["query"])
+    analysis = analyze(docs)
+    state["docs"] = docs
+    state["analysis"] = analysis
+    return state
+```
+
+### Use Descriptive Node Names
+
+Node names should clearly indicate their purpose.
+
+```python
+# GOOD
+workflow.add_node("initial_analysis", initial_analysis_node)
+workflow.add_node("reflection", reflection_node)
+workflow.add_node("research", research_node)
+workflow.add_node("regenerate", regenerate_node)
+
+# BAD
+workflow.add_node("step1", node1)
+workflow.add_node("step2", node2)
+workflow.add_node("process", process_node)
+```
+
+### Document Graph Structure
+
+Add docstrings explaining the overall graph flow.
+
+```python
+def create_reflection_graph():
+    """Create LangGraph workflow for Iteration 2 reflection agent.
+    
+    Graph Flow:
+    1. initial_analysis → Perform RAG-based alignment analysis
+    2. reflection → Assess confidence and identify gaps
+    3. should_research → Route based on confidence threshold
+       - Low confidence → research
+       - High confidence → END
+    4. research → Conduct web search for gaps
+    5. regenerate → Update analysis with research findings
+    6. should_reflect_again → Route based on iteration count
+       - Under max iterations → reflection (loop)
+       - At max iterations → END
+    
+    Returns:
+        Compiled state graph ready for execution
+    """
+    workflow = StateGraph(AgentState)
+    # ... implementation
+```
+
+---
+
+## Summary
+
+LangGraph agents in VIRA follow these core principles:
+1. **Type-safe state** with TypedDict
+2. **Graceful error handling** with state["error"]
+3. **Observable execution** with emoji logging
+4. **Clear routing logic** with Literal types
+5. **Single responsibility** nodes
+6. **Compiled graphs** before execution
+
+These patterns ensure maintainable, debuggable, and reliable agent workflows.

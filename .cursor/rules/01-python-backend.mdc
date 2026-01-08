@@ -1,0 +1,389 @@
+# Python Backend Development Rules
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: Python 3.10+ backend development with FastAPI, LangChain, Pydantic
+
+---
+
+## Type Hints (Python 3.10+)
+
+### Modern Union Syntax (Python 3.10+)
+
+**Preferred**: `str | None` (PEP 604)  
+**Acceptable**: `Optional[str]` from typing (auto-fixed by ruff)  
+**Avoid**: `Union[str, None]` (verbose, auto-fixed by ruff)
+
+```python
+# Preferred - modern syntax
+def get_user(user_id: int) -> dict | None:
+    pass
+
+def process(value: str | int | float) -> bool:
+    pass
+
+# Acceptable - will be auto-converted
+from typing import Optional
+def get_user(user_id: int) -> Optional[dict]:
+    pass
+```
+
+**Note**: Ruff with UP007 rule will automatically convert to preferred syntax.
+
+### Type All Function Signatures
+
+All functions must have complete type annotations (enforced by mypy strict mode).
+
+```python
+# BAD - Missing types
+def calculate(x, y):
+    return x + y
+
+# GOOD - Complete types
+def calculate(x: float, y: float) -> float:
+    return x + y
+```
+
+### Use TypedDict for Structured Dicts
+
+Prefer `TypedDict` over `dict[str, Any]` for structured data.
+
+```python
+from typing import TypedDict
+
+# BAD
+def process_user(data: dict[str, Any]) -> None:
+    name = data['name']  # No type checking
+
+# GOOD
+class UserData(TypedDict):
+    name: str
+    email: str
+    age: int
+
+def process_user(data: UserData) -> None:
+    name = data['name']  # Type-checked
+```
+
+### Prefer Pydantic Models for API Boundaries
+
+Use Pydantic models for request/response validation in FastAPI.
+
+```python
+from pydantic import BaseModel, Field
+
+class AnalysisRequest(BaseModel):
+    company_name: str = Field(..., min_length=1)
+    plan_summary: str
+    query: str | None = None
+
+@app.post("/analyze")
+async def analyze(request: AnalysisRequest) -> AnalysisResponse:
+    # Request is automatically validated
+    ...
+```
+
+---
+
+## Async Patterns
+
+### Use async def for I/O Operations
+
+All I/O operations (LLM calls, database, HTTP) must be async.
+
+```python
+# BAD - Blocking I/O
+def fetch_data():
+    response = requests.get(url)
+    return response.json()
+
+# GOOD - Non-blocking async I/O
+async def fetch_data() -> dict:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        return response.json()
+```
+
+### Use asyncio.gather() for Parallel Operations
+
+When multiple async operations can run concurrently, use `gather()`.
+
+```python
+# BAD - Sequential execution
+results = []
+for item in items:
+    result = await process_item(item)
+    results.append(result)
+
+# GOOD - Parallel execution
+results = await asyncio.gather(
+    *[process_item(item) for item in items]
+)
+```
+
+### Proper Error Handling in Async Contexts
+
+Handle exceptions in async code appropriately.
+
+```python
+async def safe_api_call() -> dict | None:
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        return None
+```
+
+### Use Async Context Managers
+
+Use `async with` for resource management.
+
+```python
+# GOOD - Proper async resource management
+async def query_database():
+    async with get_db_connection() as conn:
+        result = await conn.execute(query)
+        return result
+```
+
+---
+
+## LangChain Integration
+
+### Explicit Temperature Settings
+
+Always specify temperature when creating LLM instances.
+
+```python
+from langchain_openai import ChatOpenAI
+
+# BAD - Implicit temperature
+llm = ChatOpenAI(model="gpt-4o-mini")
+
+# GOOD - Explicit temperature
+llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.0  # Deterministic for analysis
+)
+
+# For creative tasks
+creative_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.7
+)
+```
+
+### Add Retry Logic for LLM Calls
+
+Use tenacity for automatic retries on transient failures.
+
+```python
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10)
+)
+async def call_llm(prompt: str) -> str:
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+    response = await llm.ainvoke(prompt)
+    return response.content
+```
+
+### Log Token Usage
+
+Track token usage and costs for all LLM interactions.
+
+```python
+from langchain.callbacks import get_openai_callback
+
+async def analyze_with_tracking(text: str) -> tuple[str, dict]:
+    with get_openai_callback() as cb:
+        result = await llm.ainvoke(text)
+        
+        usage = {
+            "total_tokens": cb.total_tokens,
+            "prompt_tokens": cb.prompt_tokens,
+            "completion_tokens": cb.completion_tokens,
+            "total_cost": cb.total_cost
+        }
+        
+        logger.info(f"LLM call used {cb.total_tokens} tokens, cost ${cb.total_cost:.4f}")
+        
+        return result.content, usage
+```
+
+### Use Structured Outputs with Pydantic
+
+Leverage Pydantic models for structured LLM outputs.
+
+```python
+from langchain_core.output_parsers import PydanticOutputParser
+from pydantic import BaseModel, Field
+
+class AlignmentAnalysis(BaseModel):
+    aligns: list[str] = Field(description="Areas of alignment")
+    gaps: list[str] = Field(description="Areas of misalignment")
+    confidence: float = Field(ge=0.0, le=1.0)
+
+parser = PydanticOutputParser(pydantic_object=AlignmentAnalysis)
+
+prompt = f"""
+Analyze the business plan.
+
+{parser.get_format_instructions()}
+"""
+
+result = await llm.ainvoke(prompt)
+analysis = parser.parse(result.content)
+```
+
+---
+
+## FastAPI Patterns
+
+### Use Dependency Injection
+
+Leverage FastAPI's dependency injection for shared resources.
+
+```python
+from fastapi import Depends
+
+def get_vector_store():
+    """Dependency that provides vector store instance."""
+    return VectorStoreManager()
+
+@app.post("/analyze")
+async def analyze(
+    request: AnalysisRequest,
+    vector_store: VectorStoreManager = Depends(get_vector_store)
+):
+    # vector_store is automatically injected
+    docs = await vector_store.search(request.query)
+    ...
+```
+
+### Implement Proper CORS
+
+Configure CORS for React frontend communication.
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # React dev server
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+### Add Request Validation
+
+Use Pydantic models for automatic request validation.
+
+```python
+from pydantic import BaseModel, Field, validator
+
+class CreateSessionRequest(BaseModel):
+    company_name: str = Field(..., min_length=1, max_length=200)
+    
+    @validator('company_name')
+    def validate_company_name(cls, v):
+        if not v.strip():
+            raise ValueError('Company name cannot be empty')
+        return v.strip()
+```
+
+### Use Async Route Handlers
+
+All route handlers should be async for better concurrency.
+
+```python
+# BAD - Blocking route
+@app.get("/data")
+def get_data():
+    return fetch_from_db()
+
+# GOOD - Async route
+@app.get("/data")
+async def get_data():
+    return await fetch_from_db()
+```
+
+### Implement Error Handling Middleware
+
+Add middleware for consistent error handling.
+
+```python
+from fastapi import Request, status
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal server error"}
+    )
+```
+
+---
+
+## Code Organization
+
+### Module Structure
+
+Organize code by domain, not by type.
+
+```
+# GOOD
+src/vira/
+├── agents/          # Agent-related code
+│   ├── graph.py
+│   ├── state.py
+│   └── research.py
+├── rag/             # RAG pipeline
+│   └── pipeline.py
+└── backend/         # API layer
+    └── api.py
+
+# BAD
+src/vira/
+├── models/          # All models mixed together
+├── services/        # All services mixed together
+└── controllers/     # All controllers mixed together
+```
+
+### Import Organization
+
+Follow standard Python import ordering.
+
+```python
+# Standard library imports
+from __future__ import annotations
+import asyncio
+from typing import Any
+
+# Third-party imports
+from fastapi import FastAPI
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel
+
+# Local imports
+from ..config.settings import get_settings
+from .state import AgentState
+```
+
+---
+
+## Summary
+
+These rules ensure type-safe, performant, and maintainable Python backend code for VIRA. Always prioritize async patterns, proper type hints, and structured error handling.

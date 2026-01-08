@@ -1,0 +1,345 @@
+# VIRA Cursor Rules v2.1
+
+**Last Updated**: January 8, 2026  
+**Organization**: Modular rules in `.cursor/rules/` directory
+
+---
+
+## Overview
+
+This project uses a modular cursor rules system. All detailed rules are organized in the `.cursor/rules/` directory by domain. This file serves as an index and quick reference.
+
+---
+
+## Rule Priority System
+
+### Tier 1: Critical (Always Enforce)
+1. **Type Safety**: Use `str | None` not `Optional[str]` (Python 3.10+)
+2. **Error Handling**: Never raise in LangGraph nodes - set `state["error"]`
+3. **State Management**: Use TypedDict for AgentState with graceful degradation
+4. **WebSocket Cleanup**: Always cleanup in useEffect return functions
+5. **Feature Flags**: Check flags before using iteration-specific features
+6. **Security**: Validate inputs, use env vars for secrets, parameterized queries
+7. **Async Patterns**: Use async/await for all I/O operations
+8. **Import Organization**: Run isort before committing (automated)
+
+### Tier 2: Important (Domain-Specific)
+See individual `.cursor/rules/*.mdc` files for:
+- LangGraph patterns (02-langgraph-agents.mdc)
+- React hooks patterns (03-typescript-react.mdc)
+- Real-time UI patterns (04-realtime-ui.mdc)
+- Configuration management (05-configuration.mdc)
+
+### Tier 3: Guidance (Style & Convention)
+- File organization preferences
+- Naming conventions
+- Code style (enforced by black/ruff/isort)
+
+---
+
+## Rule Files
+
+### 00-general.mdc
+**Scope**: Universal development principles  
+**Rules**: 26 general guidelines covering verification, file changes, code preservation, naming, performance, security, error handling, and modularity.
+
+**Key Principles**:
+- Verify information before presenting
+- Make changes file by file
+- Preserve existing code structures
+- Use explicit variable names
+- Prioritize performance and security
+- Consider edge cases and use assertions
+
+### 01-python-backend.mdc
+**Scope**: Python 3.10+, FastAPI, LangChain, Pydantic  
+**Topics**: Type hints, async patterns, LangChain integration, FastAPI patterns, code organization
+
+**Key Patterns**:
+- Modern union syntax: `str | None`
+- Async/await for all I/O operations
+- Explicit temperature settings for LLMs
+- Token usage logging
+- Dependency injection in FastAPI
+
+### 02-langgraph-agents.mdc
+**Scope**: LangGraph state machines, agent nodes, workflow orchestration  
+**Topics**: State management, node functions, graph construction, conditional routing, error handling
+
+**Key Patterns**:
+- TypedDict for AgentState
+- Node signature: `(state: AgentState) -> AgentState`
+- Graceful error handling with `state["error"]`
+- Emoji-prefixed progress logging
+- Literal types for routing decisions
+
+### 03-typescript-react.mdc
+**Scope**: React 19, TypeScript 4.9+, functional components, hooks  
+**Topics**: Component patterns, type safety, hooks, error boundaries, API clients, state management
+
+**Key Patterns**:
+- Functional components with typed props
+- Avoid `any` - use `unknown` with type guards
+- Discriminated unions for complex state
+- Proper useEffect cleanup
+- Centralized API client
+
+### 04-realtime-ui.mdc
+**Scope**: WebSocket communication, optimistic updates, streaming UI  
+**Topics**: WebSocket state management, optimistic updates, real-time streaming, progress tracking
+
+**Key Patterns**:
+- Use refs for in-flight operation tracking
+- Implement cleanup in useEffect
+- Optimistic updates with rollback logic
+- flushSync for immediate DOM updates
+- Debounce user input
+
+### 05-configuration.mdc
+**Scope**: Pydantic Settings, environment variables, feature flags  
+**Topics**: Settings pattern, environment variables, feature flags, validation
+
+**Key Patterns**:
+- Field with alias for env var mapping
+- Sensible defaults for all settings
+- Path type for file paths
+- get_settings() singleton
+- Feature flags for iteration control
+
+### 06-error-handling.mdc
+**Scope**: Exception handling, logging, monitoring, observability  
+**Topics**: Error handling, observability, logging conventions, monitoring, error recovery
+
+**Key Patterns**:
+- Catch specific exceptions
+- Set `state["error"]` in agent nodes
+- Log with context and trace IDs
+- Emoji-prefixed progress statements
+- Track token usage and latency
+- Implement retries and circuit breakers
+
+### 07-documentation.mdc
+**Scope**: Module docstrings, ADRs, API documentation, type documentation  
+**Topics**: Docstrings, ADRs, API docs, type docs, code comments
+
+**Key Patterns**:
+- One-line summary in module docstrings
+- Document iteration introduced
+- ADRs for significant decisions
+- Comprehensive API documentation
+- JSDoc comments for complex types
+
+### 08-iteration-dev.mdc
+**Scope**: Feature flags, backward compatibility, iteration markers  
+**Topics**: Feature flags, backward compatibility, code organization, frontend handling, migration
+
+**Key Patterns**:
+- Feature flags in Settings
+- Iteration markers in comments
+- Optional fields for new iterations
+- Graceful degradation
+- Progressive enhancement in UI
+
+### 09-code-quality.mdc
+**Scope**: Code cleanup, TODO management, import organization  
+**Topics**: TODO management, code cleanup, import organization, code style, refactoring
+
+**Key Patterns**:
+- TODOs with issue references: `# TODO(#123): Description`
+- Remove commented code before committing
+- Standard import ordering
+- Follow PEP 8 and use ruff/black
+- Extract magic numbers to constants
+
+### 10-prompt-engineering.mdc
+**Scope**: Prompt management, LLM patterns, prompt testing  
+**Topics**: Prompt management, prompt structure, optimization, testing, iteration
+
+**Key Patterns**:
+- Store prompts in separate versioned files
+- Document input/output formats
+- Include few-shot examples
+- Use chain-of-thought prompting
+- Test prompts systematically
+- A/B test prompt variations
+
+---
+
+## Quick Reference
+
+### Python Development
+```python
+# Type hints (Python 3.10+)
+def process(data: dict[str, Any]) -> list[str] | None:
+    pass
+
+# Async patterns
+async def fetch_data() -> dict:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        return response.json()
+
+# LangGraph node
+def my_node(state: AgentState) -> AgentState:
+    print("🔍 Running operation...")
+    try:
+        result = perform_operation(state)
+        state["result"] = result
+        print("   ✓ Operation complete")
+    except Exception as e:
+        print(f"   ⚠️  Error: {e}")
+        state["error"] = str(e)
+    return state
+```
+
+### TypeScript/React Development
+```typescript
+// Typed component
+interface Props {
+  session: Session | null;
+  onUpdate: (session: Session) => void;
+}
+
+const Component: React.FC<Props> = ({ session, onUpdate }) => {
+  // Use refs for non-rendering values
+  const wsRef = useRef<WebSocket | null>(null);
+  
+  // Cleanup in useEffect
+  useEffect(() => {
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+    
+    return () => {
+      ws.close();
+    };
+  }, [url]);
+  
+  return <div>...</div>;
+};
+```
+
+### Configuration
+```python
+# Settings with feature flags
+class Settings(BaseSettings):
+    enable_reflection: bool = Field(default=False, alias="ENABLE_REFLECTION")
+
+# Usage
+settings = get_settings()
+if settings.enable_reflection:
+    result = await reflection_agent.analyze(request)
+else:
+    result = await basic_analyzer.analyze(request)
+```
+
+---
+
+## Project-Specific Conventions
+
+### Iteration Markers
+```python
+# Iteration 1: Basic RAG pipeline
+# Iteration 2: Reflection + Research
+# Iteration 3: Multi-agent committee (planned)
+```
+
+### Emoji Progress Indicators
+```python
+print("🔍 Running analysis...")      # Analysis/search
+print("🔬 Running research...")      # Research
+print("🤔 Running reflection...")    # Reflection
+print("   ✓ Operation complete")    # Success
+print("   ⚠️  Warning detected")    # Warning
+print("   ❌ Operation failed")     # Error
+```
+
+### File Organization
+```
+src/vira/
+├── agents/          # LangGraph agents (Iteration 2+)
+├── rag/             # RAG pipeline (Iteration 1)
+├── backend/         # FastAPI routes
+├── config/          # Settings and configuration
+└── retrieval/       # Hybrid retrieval
+
+frontend/src/
+├── components/      # React components
+├── api/             # API client
+├── types/           # TypeScript types
+└── hooks/           # Custom hooks
+```
+
+---
+
+## Tooling
+
+### Python
+```bash
+# Format code
+black src/ tests/
+
+# Lint
+ruff check --fix src/ tests/
+
+# Type check
+mypy src/
+
+# Run tests
+pytest
+```
+
+### TypeScript
+```bash
+# Start dev server
+npm start
+
+# Build
+npm run build
+
+# Test
+npm test
+```
+
+---
+
+## Getting Help
+
+- **General rules**: See `.cursor/rules/00-general.mdc`
+- **Python backend**: See `.cursor/rules/01-python-backend.mdc` and `02-langgraph-agents.mdc`
+- **React frontend**: See `.cursor/rules/03-typescript-react.mdc` and `04-realtime-ui.mdc`
+- **Configuration**: See `.cursor/rules/05-configuration.mdc`
+- **Error handling**: See `.cursor/rules/06-error-handling.mdc`
+- **Documentation**: See `.cursor/rules/07-documentation.mdc`
+- **Iterations**: See `.cursor/rules/08-iteration-dev.mdc`
+- **Code quality**: See `.cursor/rules/09-code-quality.mdc`
+- **Prompts**: See `.cursor/rules/10-prompt-engineering.mdc`
+
+---
+
+## Version History
+
+- **v2.1** (2026-01-08): Added rule prioritization, flexible guidelines, LLM compatibility improvements
+- **v2.0** (2025-01-08): Modular organization with 11 specialized rule files
+- **v1.0** (2024-11-01): Initial 26 general rules
+
+---
+
+## Cross-LLM Compatibility
+
+These rules are designed for Cursor with Claude/GPT-4. Some patterns may need adjustment for other coding assistants:
+
+**Auto-fixed by tooling** (LLM can use alternative syntax):
+- Type unions: `Optional[str]` → `str | None` (ruff UP007)
+- Import order: isort handles automatically
+- Code style: black handles formatting
+
+**LLM-specific considerations**:
+- React 19 features may not be in all model training data - see [03-typescript-react.mdc](.cursor/rules/03-typescript-react.mdc) for explicit examples
+- LangGraph patterns provided as complete template in [02-langgraph-agents.mdc](.cursor/rules/02-langgraph-agents.mdc)
+- Emoji logging is optional - structured logging is the requirement
+
+**Measurement**: Track code review comments to identify inconsistently applied rules.
+
+---
+
+**Note**: This modular system allows for easier maintenance and domain-specific rule updates. Each rule file is self-contained and can be read independently.

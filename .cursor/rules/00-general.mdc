@@ -1,0 +1,343 @@
+# General Development Principles
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: Universal development guidelines for VIRA project
+
+---
+
+## 1. Information Verification
+
+Always verify information before presenting it. Do not make assumptions or speculate without clear evidence.
+
+**Rationale**: Accuracy is critical in AI-assisted development. Hallucinated or assumed information can lead to incorrect implementations.
+
+**Example**:
+```python
+# BAD - Assuming API structure
+response = api.get_data()
+name = response['user']['name']  # May not exist
+
+# GOOD - Verify structure first
+response = api.get_data()
+if 'user' in response and 'name' in response['user']:
+    name = response['user']['name']
+```
+
+---
+
+## 2. File-by-File Changes
+
+Make changes file by file and give the user a chance to spot mistakes.
+
+**Rationale**: Incremental changes are easier to review and debug. Batch changes can introduce cascading errors.
+
+---
+
+## 3. Communication Style
+
+### Be Concise, Not Terse
+Provide clear, focused responses without unnecessary verbosity.
+
+**When to confirm understanding:**
+- User asks "do you understand?" or similar
+- Request is ambiguous or has multiple interpretations
+- Making significant architectural decisions
+
+**When to summarize:**
+- Changes span 3+ files
+- Complex refactoring with multiple steps
+- User explicitly requests summary
+
+**When to acknowledge errors:**
+- You made a mistake - acknowledge and fix it
+- Avoid unnecessary apologies for normal clarifications
+
+**Skip obvious explanations:**
+- Don't explain what code obviously does
+- Focus on non-obvious choices, trade-offs, or gotchas
+- Provide rationale for architectural decisions
+
+---
+
+## 4. No Whitespace Suggestions
+
+Don't suggest whitespace changes unless they fix actual issues.
+
+**Rationale**: Whitespace changes create noise in diffs and distract from meaningful changes.
+
+---
+
+## 5. No Inventions
+
+Don't invent changes other than what's explicitly requested.
+
+**Rationale**: Scope creep leads to unexpected behavior. Implement exactly what was asked.
+
+---
+
+## 6. No Unnecessary Confirmations
+
+Don't ask for confirmation of information already provided in the context.
+
+**Rationale**: If the context shows the information, trust it. Don't waste time re-confirming.
+
+---
+
+## 7. Preserve Existing Code
+
+Don't remove unrelated code or functionalities. Pay attention to preserving existing structures.
+
+**Rationale**: Removing working code can break dependencies and introduce regressions.
+
+**Example**:
+```python
+# When adding a new method to a class, don't remove existing methods
+class UserService:
+    def get_user(self):  # Keep existing
+        pass
+    
+    def update_user(self):  # New addition
+        pass
+```
+
+---
+
+## 8. Single Chunk Edits
+
+Provide all edits in a single chunk instead of multiple-step instructions or explanations for the same file.
+
+**Rationale**: Multiple edits to the same file create confusion and increase error risk.
+
+---
+
+## 9. No Implementation Checks
+
+Don't ask the user to verify implementations that are visible in the provided context.
+
+**Rationale**: If the code is in context, you can verify it yourself.
+
+---
+
+## 10. No Unnecessary Updates
+
+Don't suggest updates or changes to files when there are no actual modifications needed.
+
+**Rationale**: Unnecessary file touches create noise in version control and waste time.
+
+---
+
+## 11. Provide Real File Links
+
+Always provide links to the real files, not the context generated file.
+
+**Rationale**: Users need to navigate to actual files in their workspace.
+
+---
+
+## 12. No Current Implementation
+
+Don't show or discuss the current implementation unless specifically requested.
+
+**Rationale**: Users know what the current code does. Focus on the changes needed.
+
+---
+
+## 13. Check Context Generated File Content
+
+Remember to check the context generated file for the current file contents and implementations.
+
+**Rationale**: Context files provide accurate state of the codebase.
+
+---
+
+## 14. Use Explicit Variable Names
+
+Prefer descriptive, explicit variable names over short, ambiguous ones to enhance code readability.
+
+**Example**:
+```python
+# BAD
+d = get_data()
+u = d['user']
+n = u['name']
+
+# GOOD
+response_data = get_data()
+user_info = response_data['user']
+user_name = user_info['name']
+```
+
+---
+
+## 15. Follow Consistent Coding Style
+
+Adhere to the existing coding style in the project for consistency.
+
+**For Python**: Follow PEP 8, use ruff and black formatters  
+**For TypeScript**: Follow project's ESLint configuration
+
+---
+
+## 16. Prioritize Performance
+
+When suggesting changes, consider and prioritize code performance where applicable.
+
+**Example**:
+```python
+# BAD - O(n²) complexity
+for item in list1:
+    if item in list2:  # list lookup is O(n)
+        process(item)
+
+# GOOD - O(n) complexity
+list2_set = set(list2)  # Convert to set once
+for item in list1:
+    if item in list2_set:  # set lookup is O(1)
+        process(item)
+```
+
+---
+
+## 17. Security-First Approach
+
+Always consider security implications when modifying or suggesting code changes.
+
+**Key Areas**:
+- Input validation and sanitization
+- API key and secret management (use environment variables)
+- SQL injection prevention (use parameterized queries)
+- XSS prevention in frontend
+- Authentication and authorization checks
+
+**Example**:
+```python
+# BAD - SQL injection risk
+query = f"SELECT * FROM users WHERE id = {user_id}"
+
+# GOOD - Parameterized query
+query = "SELECT * FROM users WHERE id = ?"
+cursor.execute(query, (user_id,))
+```
+
+---
+
+## 18. Test Coverage
+
+Suggest or include appropriate unit tests for new or modified code.
+
+**Note**: Currently deferred per project phase, but keep testability in mind.
+
+---
+
+## 19. Error Handling
+
+Implement robust error handling and logging where necessary.
+
+**Example**:
+```python
+# BAD
+result = api.call()
+process(result)
+
+# GOOD
+try:
+    result = api.call()
+    process(result)
+except APIError as e:
+    logger.error(f"API call failed: {e}", exc_info=True)
+    return default_value
+```
+
+---
+
+## 20. Modular Design
+
+Encourage modular design principles to improve code maintainability and reusability.
+
+**Principles**:
+- Single Responsibility Principle
+- Don't Repeat Yourself (DRY)
+- Separation of Concerns
+- Dependency Injection
+
+---
+
+## 21. Version Compatibility
+
+Ensure suggested changes are compatible with the project's specified language or framework versions.
+
+**VIRA Requirements**:
+- Python 3.10+
+- React 19
+- TypeScript 4.9+
+
+---
+
+## 22. Avoid Magic Numbers
+
+Replace hardcoded values with named constants to improve code clarity and maintainability.
+
+**Example**:
+```python
+# BAD
+if len(results) > 10:
+    results = results[:10]
+
+# GOOD
+MAX_RESULTS = 10
+if len(results) > MAX_RESULTS:
+    results = results[:MAX_RESULTS]
+```
+
+---
+
+## 23. Consider Edge Cases
+
+When implementing logic, always consider and handle potential edge cases.
+
+**Common Edge Cases**:
+- Empty lists/arrays
+- Null/None values
+- Zero values
+- Negative numbers
+- Very large numbers
+- Empty strings
+- Concurrent access
+
+**Example**:
+```python
+def calculate_average(numbers: list[float]) -> float:
+    # Edge case: empty list
+    if not numbers:
+        return 0.0
+    
+    # Edge case: single item
+    if len(numbers) == 1:
+        return numbers[0]
+    
+    return sum(numbers) / len(numbers)
+```
+
+---
+
+## 24. Use Assertions
+
+Include assertions wherever possible to validate assumptions and catch potential errors early.
+
+**Example**:
+```python
+def process_user(user_id: int, user_data: dict) -> None:
+    assert user_id > 0, "User ID must be positive"
+    assert 'email' in user_data, "User data must contain email"
+    assert isinstance(user_data['email'], str), "Email must be string"
+    
+    # Process with confidence that preconditions are met
+    ...
+```
+
+---
+
+## Summary
+
+These 24 general principles form the foundation of VIRA development practices. They apply across all code regardless of language or domain. For specialized rules, see the domain-specific rule files in this directory.

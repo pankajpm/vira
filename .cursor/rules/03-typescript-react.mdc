@@ -1,0 +1,659 @@
+# TypeScript & React Development Rules
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: React 19, TypeScript 4.9+, functional components, hooks
+
+---
+
+## React 19 Specific Features
+
+### New Features to Use
+
+**use() Hook** - Unwrap promises and context:
+```typescript
+import { use } from 'react';
+
+function Component({ promiseData }: { promiseData: Promise<Data> }) {
+  // Suspends until promise resolves
+  const data = use(promiseData);
+  return <div>{data.name}</div>;
+}
+```
+
+**Document Metadata** - Built-in title/meta handling:
+```typescript
+function Page() {
+  return (
+    <>
+      <title>My Page</title>
+      <meta name="description" content="Page description" />
+      <div>Content</div>
+    </>
+  );
+}
+```
+
+**Form Actions** - Server actions:
+```typescript
+async function submitForm(formData: FormData) {
+  'use server';
+  const name = formData.get('name');
+  // Process form
+}
+
+function Form() {
+  return <form action={submitForm}>...</form>;
+}
+```
+
+### Changed from React 18
+
+**Deprecated**:
+- `forceUpdate()` → Use state changes
+- Old Context API → Use `use()` hook
+- `ReactDOM.render()` → Use `createRoot().render()`
+
+**Automatic optimizations**:
+- No need for manual `memo()` in most cases (compiler optimizes)
+- Automatic batching for all state updates
+
+---
+
+## React Component Patterns
+
+### Use Functional Components with TypeScript
+
+All components must be functional with proper TypeScript interfaces.
+
+```typescript
+// GOOD - Functional component with typed props
+interface ChatPanelProps {
+  session: Session | null;
+  messages: Message[];
+  setMessages: (messages: Message[]) => void;
+  currentPlan: BusinessPlan | null;
+  onSessionUpdate: (session: Session) => void;
+}
+
+const ChatPanel: React.FC<ChatPanelProps> = ({
+  session,
+  messages,
+  setMessages,
+  currentPlan,
+  onSessionUpdate,
+}) => {
+  // Component implementation
+  return <div>...</div>;
+};
+
+export default ChatPanel;
+```
+
+### Export Props Interfaces
+
+Export component prop interfaces for reusability.
+
+```typescript
+// types/components.ts
+export interface ButtonProps {
+  label: string;
+  onClick: () => void;
+  variant?: 'primary' | 'secondary';
+  disabled?: boolean;
+}
+
+// Button.tsx
+import { ButtonProps } from '../types/components';
+
+export const Button: React.FC<ButtonProps> = ({ label, onClick, variant = 'primary', disabled = false }) => {
+  return (
+    <button 
+      onClick={onClick} 
+      disabled={disabled}
+      className={`btn btn-${variant}`}
+    >
+      {label}
+    </button>
+  );
+};
+```
+
+---
+
+## TypeScript Type Safety
+
+### Avoid 'any' Type
+
+Never use `any`. Use `unknown` with type guards instead.
+
+```typescript
+// BAD
+function processData(data: any) {
+  return data.value;
+}
+
+// GOOD - Use unknown with type guard
+function processData(data: unknown): string {
+  if (typeof data === 'object' && data !== null && 'value' in data) {
+    return String((data as { value: unknown }).value);
+  }
+  throw new Error('Invalid data structure');
+}
+
+// BETTER - Use proper types
+interface DataStructure {
+  value: string;
+}
+
+function processData(data: DataStructure): string {
+  return data.value;
+}
+```
+
+### Use Discriminated Unions for Complex State
+
+Use discriminated unions for state that can be in multiple modes.
+
+```typescript
+// GOOD - Discriminated union
+type LoadingState =
+  | { status: 'idle' }
+  | { status: 'loading'; progress: number }
+  | { status: 'success'; data: AlignmentResponse }
+  | { status: 'error'; error: string };
+
+function handleState(state: LoadingState) {
+  switch (state.status) {
+    case 'idle':
+      return <div>Ready to analyze</div>;
+    case 'loading':
+      return <div>Loading... {state.progress}%</div>;
+    case 'success':
+      return <div>Results: {state.data.summary}</div>;
+    case 'error':
+      return <div>Error: {state.error}</div>;
+  }
+}
+```
+
+### Define Strict Types for API Responses
+
+All API responses must have explicit types.
+
+```typescript
+// types/index.ts
+export interface AlignmentResponse {
+  company_name: string;
+  aligns: AlignmentItem[];
+  gaps: AlignmentItem[];
+  summary: string;
+  overall_confidence?: number;
+  research_conducted?: ResearchItem[];
+}
+
+export interface AlignmentItem {
+  title: string;
+  explanation: string;
+  sources: string[];
+  confidence?: number;
+  evidence_quality?: 'strong' | 'medium' | 'weak' | 'insufficient';
+}
+
+// Usage in component
+const [result, setResult] = useState<AlignmentResponse | null>(null);
+```
+
+### Export Types from Centralized Locations
+
+Organize types in central files for easy imports.
+
+```typescript
+// types/index.ts - Central type exports
+export type { Session, Message, BusinessPlan } from './models';
+export type { AlignmentResponse, AlignmentItem } from './analysis';
+export type { APIError, APIResponse } from './api';
+
+// Component usage
+import type { Session, Message, AlignmentResponse } from '../types';
+```
+
+---
+
+## React Hooks Best Practices
+
+### Proper useEffect Cleanup
+
+Always clean up side effects in useEffect.
+
+```typescript
+useEffect(() => {
+  const controller = new AbortController();
+  
+  const fetchData = async () => {
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      const data = await response.json();
+      setData(data);
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        console.error('Fetch error:', error);
+      }
+    }
+  };
+  
+  fetchData();
+  
+  // Cleanup function
+  return () => {
+    controller.abort();
+  };
+}, [url]);
+```
+
+### Use useRef for Non-Rendering Values
+
+Use refs for values that don't trigger re-renders.
+
+```typescript
+const ChatPanel: React.FC<Props> = () => {
+  // BAD - Causes unnecessary re-renders
+  const [analysisInProgress, setAnalysisInProgress] = useState<string | null>(null);
+  
+  // GOOD - Doesn't cause re-renders
+  const analysisInProgressRef = useRef<string | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  useEffect(() => {
+    return () => {
+      // Cleanup timeout on unmount
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+};
+```
+
+### Memoize Expensive Calculations
+
+Use useMemo for expensive computations.
+
+```typescript
+const ExpensiveComponent: React.FC<{ data: Item[] }> = ({ data }) => {
+  // BAD - Recalculates on every render
+  const processedData = data.map(item => expensiveOperation(item));
+  
+  // GOOD - Only recalculates when data changes
+  const processedData = useMemo(
+    () => data.map(item => expensiveOperation(item)),
+    [data]
+  );
+  
+  return <div>{processedData.map(...)}</div>;
+};
+```
+
+### Memoize Callback Functions
+
+Use useCallback for functions passed as props.
+
+```typescript
+const ParentComponent: React.FC = () => {
+  const [count, setCount] = useState(0);
+  
+  // BAD - Creates new function on every render
+  const handleClick = () => {
+    setCount(c => c + 1);
+  };
+  
+  // GOOD - Stable function reference
+  const handleClick = useCallback(() => {
+    setCount(c => c + 1);
+  }, []);
+  
+  return <ChildComponent onClick={handleClick} />;
+};
+```
+
+---
+
+## Error Boundaries
+
+### Implement Error Boundaries for Async Operations
+
+Wrap async components in error boundaries.
+
+```typescript
+import React, { Component, ReactNode } from 'react';
+
+interface Props {
+  children: ReactNode;
+  fallback?: ReactNode;
+}
+
+interface State {
+  hasError: boolean;
+  error?: Error;
+}
+
+class ErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || (
+        <div className="error-container">
+          <h2>Something went wrong</h2>
+          <p>{this.state.error?.message}</p>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// Usage
+<ErrorBoundary fallback={<ErrorFallback />}>
+  <ChatPanel {...props} />
+</ErrorBoundary>
+```
+
+---
+
+## API Client Patterns
+
+### Centralize API Calls
+
+Keep all API calls in a centralized client module.
+
+```typescript
+// api/client.ts
+import axios from 'axios';
+import type { Session, Message, AlignmentResponse } from '../types';
+
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8001';
+
+const client = axios.create({
+  baseURL: API_BASE,
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+export const sessionAPI = {
+  create: async (companyName: string): Promise<Session> => {
+    const response = await client.post<Session>('/sessions', { company_name: companyName });
+    return response.data;
+  },
+  
+  list: async (): Promise<Session[]> => {
+    const response = await client.get<Session[]>('/sessions');
+    return response.data;
+  },
+};
+
+export const analysisAPI = {
+  analyze: async (sessionId: string, planContent: string): Promise<AlignmentResponse> => {
+    const response = await client.post<AlignmentResponse>(
+      `/sessions/${sessionId}/analyze`,
+      { plan_content: planContent }
+    );
+    return response.data;
+  },
+};
+```
+
+### Handle Errors Consistently
+
+Implement consistent error handling across API calls.
+
+```typescript
+// api/client.ts
+import axios, { AxiosError } from 'axios';
+
+export class APIError extends Error {
+  constructor(
+    message: string,
+    public statusCode?: number,
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = 'APIError';
+  }
+}
+
+client.interceptors.response.use(
+  response => response,
+  (error: AxiosError) => {
+    if (error.response) {
+      throw new APIError(
+        error.response.data?.detail || 'API request failed',
+        error.response.status,
+        error.response.data
+      );
+    } else if (error.request) {
+      throw new APIError('No response from server');
+    } else {
+      throw new APIError(error.message);
+    }
+  }
+);
+
+// Usage in component
+try {
+  const result = await analysisAPI.analyze(sessionId, content);
+  setResult(result);
+} catch (error) {
+  if (error instanceof APIError) {
+    setError(`API Error: ${error.message}`);
+  } else {
+    setError('Unexpected error occurred');
+  }
+}
+```
+
+### Implement Retry Logic
+
+Add retry logic for transient failures.
+
+```typescript
+import axios from 'axios';
+
+async function fetchWithRetry<T>(
+  url: string,
+  maxRetries: number = 3,
+  delay: number = 1000
+): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await axios.get<T>(url);
+      return response.data;
+    } catch (error) {
+      if (attempt === maxRetries) throw error;
+      
+      // Exponential backoff
+      await new Promise(resolve => setTimeout(resolve, delay * attempt));
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+```
+
+---
+
+## State Management
+
+### Use useState for Local State
+
+Keep component-local state in useState.
+
+```typescript
+const ChatPanel: React.FC = () => {
+  const [input, setInput] = useState('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  
+  return <div>...</div>;
+};
+```
+
+### Lift State When Needed
+
+Lift state to common ancestor when multiple components need it.
+
+```typescript
+// App.tsx - Shared state
+const App: React.FC = () => {
+  const [session, setSession] = useState<Session | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  
+  return (
+    <div>
+      <Sidebar session={session} onSessionChange={setSession} />
+      <ChatPanel session={session} messages={messages} setMessages={setMessages} />
+    </div>
+  );
+};
+```
+
+### Consider React Query for Server State
+
+For complex server state management, consider React Query.
+
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+function useSessions() {
+  return useQuery({
+    queryKey: ['sessions'],
+    queryFn: sessionAPI.list,
+  });
+}
+
+function useCreateSession() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (companyName: string) => sessionAPI.create(companyName),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
+  });
+}
+
+// Usage
+const { data: sessions, isLoading } = useSessions();
+const createSession = useCreateSession();
+```
+
+---
+
+## Performance Optimization
+
+### Avoid Inline Object/Array Creation in Props
+
+Don't create new objects/arrays in render.
+
+```typescript
+// BAD - Creates new object on every render
+<Component style={{ margin: 10 }} />
+
+// GOOD - Stable reference
+const style = { margin: 10 };
+<Component style={style} />
+
+// BAD - Creates new array on every render
+<List items={data.filter(x => x.active)} />
+
+// GOOD - Memoize filtered array
+const activeItems = useMemo(() => data.filter(x => x.active), [data]);
+<List items={activeItems} />
+```
+
+### Use Key Props Correctly
+
+Always use stable, unique keys for lists.
+
+```typescript
+// BAD - Index as key (causes issues with reordering)
+{messages.map((msg, index) => (
+  <Message key={index} {...msg} />
+))}
+
+// GOOD - Unique ID as key
+{messages.map(msg => (
+  <Message key={msg.id} {...msg} />
+))}
+```
+
+---
+
+## Code Organization
+
+### Organize Imports
+
+Follow consistent import ordering.
+
+```typescript
+// React imports
+import React, { useState, useEffect, useRef } from 'react';
+
+// Third-party imports
+import axios from 'axios';
+import ReactMarkdown from 'react-markdown';
+
+// Local imports - types
+import type { Session, Message } from '../types';
+
+// Local imports - components
+import { ChatMessage } from './ChatMessage';
+
+// Local imports - utilities
+import { formatDate } from '../utils/date';
+
+// Styles
+import './ChatPanel.css';
+```
+
+### Collocate Related Code
+
+Keep related components, types, and utilities together.
+
+```
+components/
+├── ChatPanel/
+│   ├── ChatPanel.tsx
+│   ├── ChatPanel.types.ts
+│   ├── ChatPanel.styles.css
+│   ├── ChatMessage.tsx
+│   └── index.ts  # Re-export
+```
+
+---
+
+## Summary
+
+React/TypeScript development in VIRA follows these principles:
+1. **Type safety** with no `any` types
+2. **Functional components** with hooks
+3. **Proper cleanup** in useEffect
+4. **Centralized API** client
+5. **Error boundaries** for resilience
+6. **Performance optimization** with memoization
+7. **Consistent code organization**
+
+These patterns ensure maintainable, performant, and type-safe frontend code.

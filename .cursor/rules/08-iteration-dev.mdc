@@ -1,0 +1,582 @@
+# Iteration-Based Development Rules
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: Feature flags, backward compatibility, iteration markers
+
+---
+
+## Feature Flags
+
+### Use Settings Fields for Iteration Features
+
+Control iteration-specific features with boolean flags in Settings.
+
+```python
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    # Iteration 2: Reflection agent with self-critique and research
+    enable_reflection: bool = Field(default=False, alias="ENABLE_REFLECTION")
+    
+    # Future: Iteration 3: Multi-agent committee simulation
+    enable_multi_agent: bool = Field(default=False, alias="ENABLE_MULTI_AGENT")
+```
+
+### Document Which Iteration Introduces Each Feature
+
+Add comments explaining iteration context.
+
+```python
+class Settings(BaseSettings):
+    # Iteration 2: Enable reflection agent with self-critique and autonomous research
+    # Requires: SERPER_API_KEY for web search functionality
+    # Default: False (uses Iteration 1 basic RAG pipeline)
+    enable_reflection: bool = Field(default=False, alias="ENABLE_REFLECTION")
+    
+    # Iteration 2: Confidence threshold for triggering research (0.0-1.0)
+    # Lower values trigger research more aggressively
+    # Default: 0.7 (research if confidence < 70%)
+    reflection_confidence_threshold: float = Field(
+        default=0.7,
+        alias="REFLECTION_CONFIDENCE_THRESHOLD"
+    )
+```
+
+### Add Iteration Markers in Comments
+
+Mark code sections with iteration numbers.
+
+```python
+# Iteration 1: Basic RAG pipeline
+def basic_analyze(plan: str) -> AlignmentResponse:
+    """Perform basic RAG-based alignment analysis."""
+    docs = retrieve_docs(plan)
+    return analyze_docs(docs)
+
+# Iteration 2: Reflection + Research
+def reflection_analyze(plan: str) -> AlignmentResponse:
+    """Perform analysis with reflection and research."""
+    initial = basic_analyze(plan)
+    reflection = reflect_on_analysis(initial)
+    
+    if reflection.confidence < 0.7:
+        research = conduct_research(reflection.gaps)
+        return regenerate_with_research(initial, research)
+    
+    return initial
+```
+
+### Gate New Features Behind Flags
+
+Always check feature flags before using iteration-specific features.
+
+```python
+from ..config.settings import get_settings
+
+async def analyze_business_plan(request: AnalysisRequest) -> AlignmentResponse:
+    """Analyze business plan with appropriate iteration."""
+    settings = get_settings()
+    
+    if settings.enable_reflection:
+        # Iteration 2: Use reflection agent
+        print("🔄 Using Iteration 2 (Reflection + Research)")
+        return await reflection_agent.analyze(request)
+    else:
+        # Iteration 1: Use basic RAG
+        print("📊 Using Iteration 1 (Basic RAG)")
+        return await basic_analyzer.analyze(request)
+```
+
+---
+
+## Version Management Strategies
+
+### Feature Flags: For Temporary Rollout
+Use feature flags for gradual rollout and emergency rollback:
+
+```python
+settings = get_settings()
+if settings.enable_new_feature:
+    result = new_implementation()
+else:
+    result = old_implementation()
+```
+
+**When to use**: A/B testing, gradual rollout, risky changes  
+**When to remove**: Once new feature is stable (typically 1-2 iterations)
+
+### Strategy Pattern: For Permanent Versioning
+For API versioning or long-term coexistence:
+
+```python
+class AnalyzerFactory:
+    """Factory for creating analyzers by version."""
+    
+    @staticmethod
+    def create(version: int) -> Analyzer:
+        """Create analyzer for specified version."""
+        if version == 2:
+            return ReflectionAnalyzer()
+        elif version == 1:
+            return BasicAnalyzer()
+        raise ValueError(f"Unsupported version: {version}")
+
+# Usage - cleaner branching
+analyzer = AnalyzerFactory.create(settings.analyzer_version)
+result = await analyzer.analyze(request)
+```
+
+**When to use**: Multiple versions maintained long-term, API versioning  
+**Benefits**: Cleaner code, easier testing, clear separation
+
+---
+
+## Backward Compatibility
+
+### Iteration N Must Work with Iteration N-1 Disabled
+
+Each iteration should function independently when its flag is disabled.
+
+```python
+# GOOD - Works with or without reflection enabled
+async def analyze(request: AnalysisRequest):
+    settings = get_settings()
+    
+    # Always works (Iteration 1)
+    basic_result = await basic_analyzer.analyze(request)
+    
+    # Optional enhancement (Iteration 2)
+    if settings.enable_reflection:
+        enhanced_result = await enhance_with_reflection(basic_result)
+        return enhanced_result
+    
+    return basic_result
+
+# BAD - Breaks when reflection disabled
+async def analyze(request: AnalysisRequest):
+    # Assumes reflection is always available
+    result = await reflection_agent.analyze(request)
+    return result
+```
+
+### Add New Fields as Optional in Pydantic Models
+
+New iteration fields must be optional to maintain compatibility.
+
+```python
+from pydantic import BaseModel
+
+class AlignmentResponse(BaseModel):
+    # Iteration 1: Core fields (required)
+    company_name: str
+    aligns: list[AlignmentItem]
+    gaps: list[AlignmentItem]
+    summary: str
+    
+    # Iteration 2: Enhanced fields (optional)
+    overall_confidence: float | None = None
+    research_conducted: list[ResearchItem] | None = None
+    data_gaps: list[str] | None = None
+```
+
+**Why optional?**
+- Iteration 1 responses don't have these fields
+- Frontend must handle both formats
+- Allows gradual rollout
+- Enables A/B testing
+
+### Use Graceful Degradation When Features Disabled
+
+Provide reasonable defaults when iteration features are unavailable.
+
+```python
+def get_confidence_score(result: AlignmentResponse) -> float:
+    """Get confidence score with fallback for Iteration 1."""
+    # Iteration 2: Use actual confidence if available
+    if result.overall_confidence is not None:
+        return result.overall_confidence
+    
+    # Iteration 1: Estimate confidence from result quality
+    if not result.aligns and not result.gaps:
+        return 0.0
+    
+    # Heuristic: More aligns = higher confidence
+    total_items = len(result.aligns) + len(result.gaps)
+    if total_items == 0:
+        return 0.5
+    
+    return len(result.aligns) / total_items
+```
+
+### Test with All Iteration Combinations
+
+Verify functionality with different feature flag combinations.
+
+```python
+import pytest
+from unittest.mock import patch
+
+@pytest.mark.parametrize("enable_reflection", [True, False])
+async def test_analyze_with_reflection_flag(enable_reflection: bool):
+    """Test analysis works with reflection enabled and disabled."""
+    with patch("vira.config.settings.get_settings") as mock_settings:
+        mock_settings.return_value.enable_reflection = enable_reflection
+        
+        result = await analyze_business_plan(test_request)
+        
+        # Should work in both cases
+        assert result.company_name == "Test Corp"
+        assert len(result.aligns) > 0
+        
+        # Iteration 2 fields only present when enabled
+        if enable_reflection:
+            assert result.overall_confidence is not None
+        else:
+            assert result.overall_confidence is None
+```
+
+---
+
+## Code Organization
+
+### Group Iteration-Specific Code in Dedicated Modules
+
+Organize code by iteration for clarity.
+
+```
+src/vira/
+├── rag/
+│   └── pipeline.py          # Iteration 1: Basic RAG
+├── agents/
+│   ├── reflection.py        # Iteration 2: Reflection agent
+│   ├── research.py          # Iteration 2: Research agent
+│   ├── graph.py             # Iteration 2: LangGraph orchestration
+│   └── committee.py         # Iteration 3: Multi-agent committee (planned)
+```
+
+### Use Clear Naming for Iteration-Specific Components
+
+Name modules and classes to indicate their iteration.
+
+```python
+# GOOD - Clear iteration context
+class ReflectionAgent:  # Iteration 2
+    """Self-critique agent for Iteration 2."""
+    pass
+
+class BasicRAGAnalyzer:  # Iteration 1
+    """Basic RAG pipeline for Iteration 1."""
+    pass
+
+class CommitteeOrchestrator:  # Iteration 3
+    """Multi-agent committee for Iteration 3."""
+    pass
+
+# BAD - Unclear which iteration
+class Agent:
+    pass
+
+class Analyzer:
+    pass
+```
+
+### Document Iteration Dependencies in Module Docstrings
+
+Clearly state iteration requirements.
+
+```python
+"""Reflection agent for self-critique and confidence assessment.
+
+**Iteration**: 2  
+**Dependencies**: 
+- Iteration 1 RAG pipeline (vira.rag.pipeline)
+- LangChain for LLM calls
+- OpenAI API for GPT-4
+
+**Feature Flag**: ENABLE_REFLECTION
+
+This module implements the reflection agent that analyzes alignment
+explanations for completeness and identifies information gaps requiring
+research. It is only active when ENABLE_REFLECTION=true.
+
+Usage:
+    ```python
+    from vira.agents.reflection import reflect_on_explanation
+    from vira.config.settings import get_settings
+    
+    settings = get_settings()
+    if settings.enable_reflection:
+        reflection = reflect_on_explanation(explanation, docs, llm)
+    ```
+"""
+```
+
+---
+
+## Frontend Iteration Handling
+
+### Handle Optional Fields in TypeScript
+
+Type optional iteration fields correctly.
+
+```typescript
+// types/index.ts
+export interface AlignmentResponse {
+    // Iteration 1: Core fields
+    company_name: string;
+    aligns: AlignmentItem[];
+    gaps: AlignmentItem[];
+    summary: string;
+    
+    // Iteration 2: Optional enhanced fields
+    overall_confidence?: number;
+    research_conducted?: ResearchItem[];
+    data_gaps?: string[];
+}
+
+// Component usage
+const AnalysisResult: React.FC<{ result: AlignmentResponse }> = ({ result }) => {
+    return (
+        <div>
+            <h2>{result.summary}</h2>
+            
+            {/* Iteration 2: Show confidence if available */}
+            {result.overall_confidence !== undefined && (
+                <div className="confidence">
+                    Confidence: {(result.overall_confidence * 100).toFixed(0)}%
+                </div>
+            )}
+            
+            {/* Iteration 2: Show research if available */}
+            {result.research_conducted && result.research_conducted.length > 0 && (
+                <ResearchSection research={result.research_conducted} />
+            )}
+        </div>
+    );
+};
+```
+
+### Progressive Enhancement in UI
+
+Add iteration features as enhancements, not requirements.
+
+```typescript
+const ChatPanel: React.FC = () => {
+    const [result, setResult] = useState<AlignmentResponse | null>(null);
+    
+    return (
+        <div>
+            {/* Core UI - always shown (Iteration 1) */}
+            <AlignmentsList aligns={result.aligns} gaps={result.gaps} />
+            
+            {/* Enhanced UI - conditionally shown (Iteration 2) */}
+            {result.overall_confidence !== undefined && (
+                <ConfidenceIndicator confidence={result.overall_confidence} />
+            )}
+            
+            {result.research_conducted && (
+                <ResearchResults research={result.research_conducted} />
+            )}
+        </div>
+    );
+};
+```
+
+---
+
+## Iteration Transition Strategy
+
+### Deprecation Warnings
+
+Warn when using deprecated iteration features.
+
+```python
+import warnings
+
+def legacy_analyze(plan: str) -> dict:
+    """Legacy analysis function (Iteration 1).
+    
+    .. deprecated:: 2.0
+        Use :func:`analyze_business_plan` instead.
+        This function will be removed in version 3.0.
+    """
+    warnings.warn(
+        "legacy_analyze is deprecated, use analyze_business_plan instead",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return basic_analyzer.analyze(plan)
+```
+
+### Migration Guides
+
+Document how to upgrade between iterations.
+
+```markdown
+# Migrating from Iteration 1 to Iteration 2
+
+## Configuration Changes
+
+Add to `.env`:
+```bash
+ENABLE_REFLECTION=true
+SERPER_API_KEY=your_key_here
+REFLECTION_CONFIDENCE_THRESHOLD=0.7
+MAX_RESEARCH_QUERIES=5
+```
+
+## API Changes
+
+### Response Format
+
+Iteration 2 adds optional fields to `AlignmentResponse`:
+
+```typescript
+interface AlignmentResponse {
+    // Existing fields (unchanged)
+    company_name: string;
+    aligns: AlignmentItem[];
+    gaps: AlignmentItem[];
+    summary: string;
+    
+    // New optional fields
+    overall_confidence?: number;        // NEW
+    research_conducted?: ResearchItem[]; // NEW
+    data_gaps?: string[];               // NEW
+}
+```
+
+### Frontend Updates
+
+Update components to handle optional fields:
+
+```typescript
+// Before (Iteration 1)
+<div>{result.summary}</div>
+
+// After (Iteration 2)
+<div>
+    {result.summary}
+    {result.overall_confidence && (
+        <ConfidenceScore score={result.overall_confidence} />
+    )}
+</div>
+```
+
+## Rollback Plan
+
+To rollback to Iteration 1:
+1. Set `ENABLE_REFLECTION=false` in `.env`
+2. Restart services
+3. System will use basic RAG pipeline
+```
+
+---
+
+## Version Control
+
+### Tag Iteration Releases
+
+Use git tags for iteration milestones.
+
+```bash
+# Tag Iteration 1 completion
+git tag -a v1.0-iteration1 -m "Iteration 1: Basic RAG pipeline"
+
+# Tag Iteration 2 completion
+git tag -a v2.0-iteration2 -m "Iteration 2: Reflection + Research"
+
+# Push tags
+git push origin --tags
+```
+
+### Branch Strategy
+
+Use branches for iteration development.
+
+```bash
+# Main branch - stable iteration
+main
+
+# Iteration development branches
+iteration-2-reflection
+iteration-3-multi-agent
+
+# Feature branches within iterations
+iteration-2/research-agent
+iteration-2/reflection-scoring
+```
+
+---
+
+## Monitoring Iteration Usage
+
+### Track Feature Flag Usage
+
+Log which iteration is being used.
+
+```python
+from ..config.settings import get_settings
+
+async def analyze(request: AnalysisRequest):
+    settings = get_settings()
+    
+    iteration = "iteration-2" if settings.enable_reflection else "iteration-1"
+    
+    logger.info(
+        "Analysis started",
+        extra={
+            "iteration": iteration,
+            "session_id": request.session_id,
+            "enable_reflection": settings.enable_reflection,
+        }
+    )
+    
+    # ... perform analysis
+```
+
+### Collect Iteration Metrics
+
+Track performance by iteration.
+
+```python
+from prometheus_client import Counter, Histogram
+
+analysis_by_iteration = Counter(
+    'analysis_requests_by_iteration',
+    'Analysis requests by iteration',
+    ['iteration']
+)
+
+analysis_latency_by_iteration = Histogram(
+    'analysis_latency_by_iteration',
+    'Analysis latency by iteration',
+    ['iteration']
+)
+
+# Usage
+iteration = "iteration-2" if settings.enable_reflection else "iteration-1"
+analysis_by_iteration.labels(iteration=iteration).inc()
+
+with analysis_latency_by_iteration.labels(iteration=iteration).time():
+    result = await perform_analysis(request)
+```
+
+---
+
+## Summary
+
+Iteration-based development in VIRA follows these principles:
+1. **Feature flags** control iteration features
+2. **Backward compatibility** - each iteration works independently
+3. **Optional fields** for new iteration data
+4. **Graceful degradation** when features disabled
+5. **Clear naming** for iteration-specific code
+6. **Module organization** by iteration
+7. **Progressive enhancement** in UI
+8. **Migration guides** for upgrades
+9. **Monitoring** of iteration usage
+
+These patterns enable safe, incremental feature rollout while maintaining system stability.

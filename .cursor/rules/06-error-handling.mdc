@@ -1,0 +1,607 @@
+# Error Handling & Observability Rules
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: Exception handling, logging, monitoring, observability
+
+---
+
+## Error Handling
+
+### Catch Specific Exceptions
+
+Never use bare `except`. Catch specific exception types.
+
+```python
+# BAD - Catches everything, including KeyboardInterrupt
+try:
+    result = risky_operation()
+except:
+    handle_error()
+
+# ALSO BAD - Too broad
+try:
+    result = risky_operation()
+except Exception:
+    handle_error()
+
+# GOOD - Specific exceptions
+try:
+    result = api.call()
+except httpx.HTTPError as e:
+    logger.error(f"HTTP error: {e}")
+    handle_http_error(e)
+except httpx.TimeoutException as e:
+    logger.error(f"Request timeout: {e}")
+    handle_timeout(e)
+except Exception as e:
+    logger.error(f"Unexpected error: {e}", exc_info=True)
+    handle_unexpected_error(e)
+```
+
+### Set state["error"] in Agent Nodes
+
+Agent nodes must handle errors gracefully without breaking the graph.
+
+```python
+def research_node(state: AgentState) -> AgentState:
+    """Conduct research to fill information gaps."""
+    print("🔬 Running research...")
+    
+    try:
+        gaps = state.get("information_gaps", [])
+        results = conduct_research(gaps)
+        
+        state["research_results"] = results
+        print(f"   ✓ Research complete: {len(results)} results")
+        
+    except Exception as e:
+        logger.error(f"Research failed: {e}", exc_info=True)
+        print(f"   ⚠️  Research error: {e}")
+        
+        # Set error in state, don't raise
+        state["error"] = f"Research failed: {str(e)}"
+        state["research_results"] = []
+        
+    return state
+```
+
+**Why?**
+- Allows graph to continue execution
+- Enables error-aware routing
+- Provides partial results when possible
+- Better debugging with state inspection
+
+### Log Errors with Context
+
+Include relevant context when logging errors.
+
+```python
+async def analyze_business_plan(
+    session_id: str,
+    company_name: str,
+    plan_content: str
+) -> AlignmentResponse:
+    """Analyze business plan alignment."""
+    try:
+        result = await analyzer.analyze(plan_content)
+        return result
+        
+    except Exception as e:
+        # Log with context
+        logger.error(
+            f"Analysis failed for session {session_id}, company {company_name}",
+            exc_info=True,
+            extra={
+                "session_id": session_id,
+                "company_name": company_name,
+                "plan_length": len(plan_content),
+                "error_type": type(e).__name__,
+            }
+        )
+        raise
+```
+
+### Return Partial Results When Possible
+
+Don't fail completely if partial results are available.
+
+```python
+def retrieve_and_analyze(query: str) -> dict:
+    """Retrieve documents and analyze them."""
+    result = {
+        "docs": [],
+        "analysis": None,
+        "errors": []
+    }
+    
+    # Try to retrieve documents
+    try:
+        result["docs"] = vector_store.search(query)
+    except Exception as e:
+        logger.error(f"Retrieval failed: {e}")
+        result["errors"].append(f"Retrieval error: {str(e)}")
+        # Continue with empty docs
+    
+    # Try to analyze (even with empty docs)
+    try:
+        result["analysis"] = analyze(result["docs"])
+    except Exception as e:
+        logger.error(f"Analysis failed: {e}")
+        result["errors"].append(f"Analysis error: {str(e)}")
+        # Return partial result
+    
+    return result
+```
+
+---
+
+## Observability
+
+### Add Structured Logging with Phase Tags
+
+Use structured logging for agent progress tracking:
+
+```python
+import logging
+logger = logging.getLogger(__name__)
+
+def initial_analysis_node(state: AgentState) -> AgentState:
+    """Execute initial alignment analysis."""
+    logger.info("Running initial analysis", extra={"phase": "analysis"})
+    
+    try:
+        result = perform_analysis(state["plan_summary"])
+        logger.info("Initial analysis complete", extra={
+            "phase": "analysis",
+            "alignments_count": len(result.aligns),
+            "gaps_count": len(result.gaps)
+        })
+        state["initial_explanation"] = result
+        
+    except Exception as e:
+        logger.error(f"Analysis error: {e}", extra={"phase": "analysis", "error": str(e)})
+        state["error"] = str(e)
+    
+    return state
+```
+
+**Standard Phase Names:**
+```python
+# Operation types
+logger.info("Running analysis", extra={"phase": "analysis"})
+logger.info("Running research", extra={"phase": "research"})
+logger.info("Running reflection", extra={"phase": "reflection"})
+logger.info("Regenerating explanation", extra={"phase": "regeneration"})
+
+# With metrics
+logger.info("Research complete", extra={
+    "phase": "research",
+    "results_count": len(results),
+    "queries_made": query_count,
+    "confidence": confidence_score
+})
+
+# Warning and error levels
+logger.warning("Issue detected", extra={"phase": "validation", "issue": details})
+logger.error("Operation failed", extra={"phase": "research", "error": str(e)})
+```
+
+**Optional**: Configure emoji console formatter for development (see 02-langgraph-agents.mdc)
+
+### Log Token Usage for All LLM Calls
+
+Track token consumption and costs.
+
+```python
+from langchain.callbacks import get_openai_callback
+
+async def call_llm_with_tracking(prompt: str) -> tuple[str, dict]:
+    """Call LLM and track token usage."""
+    with get_openai_callback() as cb:
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+        response = await llm.ainvoke(prompt)
+        
+        usage = {
+            "total_tokens": cb.total_tokens,
+            "prompt_tokens": cb.prompt_tokens,
+            "completion_tokens": cb.completion_tokens,
+            "total_cost": cb.total_cost,
+        }
+        
+        logger.info(
+            f"LLM call completed",
+            extra={
+                "model": "gpt-4o-mini",
+                "total_tokens": cb.total_tokens,
+                "cost_usd": cb.total_cost,
+            }
+        )
+        
+        print(f"   📊 Tokens: {cb.total_tokens} (${cb.total_cost:.4f})")
+        
+        return response.content, usage
+```
+
+### Track Latency for Operations
+
+Measure and log operation timing.
+
+```python
+import time
+from contextlib import contextmanager
+
+@contextmanager
+def track_timing(operation_name: str):
+    """Context manager to track operation timing."""
+    start_time = time.time()
+    print(f"⏱️  Starting {operation_name}...")
+    
+    try:
+        yield
+    finally:
+        elapsed = time.time() - start_time
+        print(f"   ✓ {operation_name} completed in {elapsed:.2f}s")
+        
+        logger.info(
+            f"{operation_name} timing",
+            extra={
+                "operation": operation_name,
+                "duration_seconds": elapsed,
+            }
+        )
+
+# Usage
+async def analyze_with_timing(plan: str):
+    with track_timing("Document retrieval"):
+        docs = await retrieve_docs(plan)
+    
+    with track_timing("LLM analysis"):
+        result = await analyze_docs(docs)
+    
+    return result
+```
+
+### Use LangSmith for Production Tracing
+
+Enable LangSmith tracing for debugging and monitoring.
+
+```python
+import os
+from langchain.callbacks.tracers import LangChainTracer
+
+# Enable LangSmith tracing
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+os.environ["LANGCHAIN_API_KEY"] = "your-api-key"
+os.environ["LANGCHAIN_PROJECT"] = "vira-prototype"
+
+# Use tracer in LLM calls
+tracer = LangChainTracer(project_name="vira-prototype")
+
+async def analyze_with_tracing(text: str):
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+    
+    result = await llm.ainvoke(
+        text,
+        config={"callbacks": [tracer]}
+    )
+    
+    # Trace URL is automatically logged
+    return result
+```
+
+---
+
+## Logging Conventions
+
+### Use Structured Logging
+
+Log with structured data for better querying.
+
+```python
+import logging
+import json
+
+# Configure structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s',
+)
+
+logger = logging.getLogger(__name__)
+
+# Structured log entry
+logger.info(
+    json.dumps({
+        "event": "analysis_started",
+        "session_id": session_id,
+        "company_name": company_name,
+        "timestamp": datetime.utcnow().isoformat(),
+        "iteration": 2,
+    })
+)
+```
+
+### Include Trace IDs for Request Correlation
+
+Add trace IDs to correlate related log entries.
+
+```python
+import uuid
+from contextvars import ContextVar
+
+# Context variable for trace ID
+trace_id_var: ContextVar[str] = ContextVar('trace_id', default='')
+
+def set_trace_id(trace_id: str | None = None):
+    """Set trace ID for current context."""
+    if trace_id is None:
+        trace_id = str(uuid.uuid4())
+    trace_id_var.set(trace_id)
+    return trace_id
+
+def get_trace_id() -> str:
+    """Get trace ID for current context."""
+    return trace_id_var.get()
+
+# Middleware to set trace ID
+@app.middleware("http")
+async def add_trace_id(request: Request, call_next):
+    trace_id = request.headers.get("X-Trace-ID") or str(uuid.uuid4())
+    set_trace_id(trace_id)
+    
+    response = await call_next(request)
+    response.headers["X-Trace-ID"] = trace_id
+    return response
+
+# Use in logging
+logger.info(
+    "Processing request",
+    extra={"trace_id": get_trace_id()}
+)
+```
+
+### Log at Appropriate Levels
+
+Use correct log levels for different situations.
+
+```python
+# DEBUG - Detailed information for debugging
+logger.debug(f"Retrieved {len(docs)} documents from vector store")
+
+# INFO - General informational messages
+logger.info(f"Analysis started for session {session_id}")
+
+# WARNING - Warning messages for recoverable issues
+logger.warning(f"Low confidence ({confidence:.2f}) - triggering research")
+
+# ERROR - Error messages for failures
+logger.error(f"Failed to retrieve documents: {e}", exc_info=True)
+
+# CRITICAL - Critical failures requiring immediate attention
+logger.critical(f"Database connection lost - cannot continue")
+```
+
+### Include Stack Traces for Errors
+
+Always include stack traces when logging exceptions.
+
+```python
+try:
+    result = risky_operation()
+except Exception as e:
+    # BAD - No stack trace
+    logger.error(f"Operation failed: {e}")
+    
+    # GOOD - Includes stack trace
+    logger.error(f"Operation failed: {e}", exc_info=True)
+    
+    # ALSO GOOD - Using exception() method
+    logger.exception("Operation failed")
+```
+
+---
+
+## Monitoring and Metrics
+
+### Track Key Metrics
+
+Monitor important business and technical metrics.
+
+```python
+from prometheus_client import Counter, Histogram, Gauge
+
+# Request counters
+analysis_requests = Counter(
+    'analysis_requests_total',
+    'Total number of analysis requests',
+    ['status']
+)
+
+# Latency histogram
+analysis_duration = Histogram(
+    'analysis_duration_seconds',
+    'Time spent processing analysis'
+)
+
+# Active sessions gauge
+active_sessions = Gauge(
+    'active_sessions',
+    'Number of active sessions'
+)
+
+# Usage
+@analysis_duration.time()
+async def analyze(request: AnalysisRequest):
+    try:
+        result = await perform_analysis(request)
+        analysis_requests.labels(status='success').inc()
+        return result
+    except Exception as e:
+        analysis_requests.labels(status='error').inc()
+        raise
+```
+
+### Monitor External API Calls
+
+Track external API health and performance.
+
+```python
+external_api_calls = Counter(
+    'external_api_calls_total',
+    'External API calls',
+    ['service', 'status']
+)
+
+external_api_duration = Histogram(
+    'external_api_duration_seconds',
+    'External API call duration',
+    ['service']
+)
+
+async def call_openai_api(prompt: str):
+    with external_api_duration.labels(service='openai').time():
+        try:
+            result = await openai.call(prompt)
+            external_api_calls.labels(service='openai', status='success').inc()
+            return result
+        except Exception as e:
+            external_api_calls.labels(service='openai', status='error').inc()
+            raise
+```
+
+---
+
+## Error Recovery Patterns
+
+### Implement Retry Logic with Exponential Backoff
+
+Use tenacity for automatic retries.
+
+```python
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type
+)
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type(httpx.HTTPError)
+)
+async def call_api_with_retry(url: str):
+    """Call API with automatic retries on failure."""
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url)
+        response.raise_for_status()
+        return response.json()
+```
+
+### Implement Circuit Breaker Pattern
+
+Prevent cascading failures with circuit breakers.
+
+```python
+from datetime import datetime, timedelta
+
+class CircuitBreaker:
+    """Simple circuit breaker implementation."""
+    
+    def __init__(self, failure_threshold: int = 5, timeout: int = 60):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.failures = 0
+        self.last_failure_time: datetime | None = None
+        self.state = "closed"  # closed, open, half-open
+    
+    def call(self, func):
+        """Execute function with circuit breaker protection."""
+        if self.state == "open":
+            if self._should_attempt_reset():
+                self.state = "half-open"
+            else:
+                raise Exception("Circuit breaker is open")
+        
+        try:
+            result = func()
+            self._on_success()
+            return result
+        except Exception as e:
+            self._on_failure()
+            raise
+    
+    def _on_success(self):
+        self.failures = 0
+        self.state = "closed"
+    
+    def _on_failure(self):
+        self.failures += 1
+        self.last_failure_time = datetime.now()
+        
+        if self.failures >= self.failure_threshold:
+            self.state = "open"
+            logger.warning(f"Circuit breaker opened after {self.failures} failures")
+    
+    def _should_attempt_reset(self) -> bool:
+        if self.last_failure_time is None:
+            return True
+        return datetime.now() - self.last_failure_time > timedelta(seconds=self.timeout)
+
+# Usage
+openai_circuit = CircuitBreaker(failure_threshold=5, timeout=60)
+
+def call_openai():
+    return openai_circuit.call(lambda: openai.chat.completions.create(...))
+```
+
+### Implement Fallback Strategies
+
+Provide fallback behavior when primary operations fail.
+
+```python
+async def get_analysis_with_fallback(plan: str) -> AlignmentResponse:
+    """Get analysis with fallback to simpler method."""
+    try:
+        # Try Iteration 2 (reflection + research)
+        return await reflection_agent.analyze(plan)
+        
+    except Exception as e:
+        logger.warning(f"Reflection agent failed: {e}, falling back to basic RAG")
+        
+        try:
+            # Fallback to Iteration 1 (basic RAG)
+            return await basic_analyzer.analyze(plan)
+            
+        except Exception as e2:
+            logger.error(f"Basic analyzer also failed: {e2}")
+            
+            # Final fallback - return error response
+            return AlignmentResponse(
+                company_name="Unknown",
+                aligns=[],
+                gaps=[],
+                summary="Analysis failed. Please try again.",
+                error=str(e2)
+            )
+```
+
+---
+
+## Summary
+
+Error handling and observability in VIRA follow these principles:
+1. **Catch specific exceptions** with proper error handling
+2. **Set state["error"]** in agent nodes for graceful degradation
+3. **Log with context** including trace IDs and structured data
+4. **Use structured logging** with phase tags for progress tracking
+5. **Track token usage** and costs for all LLM calls
+6. **Measure latency** for all operations
+7. **Implement retries** with exponential backoff
+8. **Use circuit breakers** to prevent cascading failures
+9. **Provide fallbacks** for critical operations
+10. **Monitor metrics** for system health
+
+These patterns ensure reliable, observable, and maintainable systems.

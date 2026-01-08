@@ -1,0 +1,559 @@
+# Prompt Engineering Rules
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: Prompt management, LLM patterns, prompt testing
+
+---
+
+## Prompt Management
+
+### Store Prompts in Separate Files
+
+Don't inline long prompts in code. Use separate files.
+
+```
+prompts/
+├── alignment_analysis_v1.txt
+├── reflection_assessment_v1.txt
+├── research_query_generation_v1.txt
+└── gap_identification_v1.txt
+```
+
+```python
+# BAD - Inline prompt
+def analyze(plan: str):
+    prompt = """You are an expert VC analyst. Analyze the following business plan
+    and identify alignment with a16z investment criteria. Consider factors like
+    market size, team quality, product innovation, and business model. Provide
+    detailed analysis with specific examples from the plan..."""
+    return llm.invoke(prompt)
+
+# GOOD - External prompt file
+from pathlib import Path
+
+def load_prompt(name: str) -> str:
+    """Load prompt template from file."""
+    prompt_path = Path(__file__).parent / "prompts" / f"{name}.txt"
+    return prompt_path.read_text()
+
+def analyze(plan: str):
+    prompt_template = load_prompt("alignment_analysis_v1")
+    prompt = prompt_template.format(plan=plan)
+    return llm.invoke(prompt)
+```
+
+### Version Prompts with Clear Naming
+
+Use version numbers in prompt filenames.
+
+```
+# Version progression
+prompts/
+├── alignment_analysis_v1.txt      # Initial version
+├── alignment_analysis_v2.txt      # Improved specificity
+├── alignment_analysis_v3.txt      # Added few-shot examples
+└── alignment_analysis_v4.txt      # Current production version
+```
+
+```python
+# Configuration-driven prompt versioning
+class Settings(BaseSettings):
+    alignment_prompt_version: int = Field(default=4, alias="ALIGNMENT_PROMPT_VERSION")
+
+def get_prompt_path(prompt_name: str) -> Path:
+    """Get path to current prompt version."""
+    settings = get_settings()
+    version = settings.alignment_prompt_version
+    return Path(__file__).parent / "prompts" / f"{prompt_name}_v{version}.txt"
+```
+
+### Document Expected Input/Output Formats
+
+Add headers to prompt files documenting structure.
+
+```text
+# alignment_analysis_v4.txt
+
+## Prompt: Alignment Analysis
+## Version: 4
+## Created: 2025-01-08
+## Author: Engineering Team
+## Model: gpt-4o-mini
+## Temperature: 0.0
+
+## Input Variables:
+## - {company_name}: Name of company being analyzed
+## - {plan_summary}: Summary of business plan (max 2000 words)
+## - {vc_context}: Retrieved VC investment criteria documents
+
+## Output Format: JSON
+## {
+##   "aligns": [{"title": str, "explanation": str, "sources": [str]}],
+##   "gaps": [{"title": str, "explanation": str, "sources": [str]}],
+##   "summary": str
+## }
+
+---
+
+You are an expert venture capital analyst specializing in a16z's investment criteria...
+
+[Rest of prompt]
+```
+
+### Add Examples for Few-Shot Learning
+
+Include examples in prompts to guide LLM behavior.
+
+```text
+# research_query_generation_v2.txt
+
+You are a research assistant generating web search queries to fill information gaps.
+
+## Task
+Given an information gap, generate 1-3 optimized search queries.
+
+## Examples
+
+### Example 1
+Gap: "No data on total addressable market (TAM) for AI-powered analytics"
+Company: "Acme Analytics"
+
+Queries:
+1. "AI analytics market size 2025 TAM forecast"
+2. "business intelligence AI market research reports"
+3. "Acme Analytics competitors market share"
+
+### Example 2
+Gap: "Unclear team background and relevant experience"
+Company: "TechStart Inc"
+
+Queries:
+1. "TechStart Inc founders LinkedIn background"
+2. "TechStart Inc team previous companies experience"
+3. "TechStart Inc advisors investors"
+
+## Your Task
+Gap: {gap_description}
+Company: {company_name}
+
+Generate 1-3 search queries:
+```
+
+---
+
+## Prompt Structure
+
+### Use Clear Role Definitions
+
+Start prompts with clear role and context.
+
+```text
+# GOOD - Clear role
+You are an expert venture capital analyst with 10+ years of experience 
+evaluating early-stage startups. You specialize in a16z's investment 
+criteria and have deep knowledge of their portfolio companies, investment 
+theses, and partner commentary.
+
+# BAD - Vague role
+You are a helpful assistant that analyzes business plans.
+```
+
+### Provide Explicit Instructions
+
+Be specific about what the LLM should do.
+
+```text
+# GOOD - Explicit instructions
+Analyze the business plan and:
+1. Identify 3-5 specific areas of strong alignment with a16z criteria
+2. For each alignment, provide:
+   - A clear title (5-10 words)
+   - Detailed explanation (2-3 sentences)
+   - Specific quotes from the plan as evidence
+   - References to a16z content that supports the alignment
+3. Identify 2-4 gaps or areas of misalignment
+4. Provide an executive summary (3-4 sentences)
+
+# BAD - Vague instructions
+Analyze this business plan and tell me if it's good for a16z.
+```
+
+### Specify Output Format
+
+Define exact output structure.
+
+```text
+# GOOD - Structured output
+Return your analysis as JSON with this exact structure:
+
+{
+  "aligns": [
+    {
+      "title": "Strong AI/ML Focus",
+      "explanation": "The company's core product leverages...",
+      "evidence": ["Quote from plan"],
+      "sources": ["https://a16z.com/ai-thesis/"]
+    }
+  ],
+  "gaps": [...],
+  "summary": "Overall assessment..."
+}
+
+# BAD - Unstructured output
+Provide your analysis in a clear format.
+```
+
+### Include Constraints and Guardrails
+
+Add explicit constraints to prevent unwanted behavior.
+
+```text
+## Constraints
+- Only cite sources from the provided VC context documents
+- Do not make up or hallucinate alignment points
+- If information is insufficient, explicitly state "Insufficient data"
+- Keep explanations factual and evidence-based
+- Avoid subjective judgments without supporting evidence
+- Do not include personal opinions or speculation
+```
+
+---
+
+## Prompt Optimization
+
+### Use Chain-of-Thought Prompting
+
+Encourage step-by-step reasoning.
+
+```text
+# GOOD - Chain-of-thought
+Analyze the business plan step by step:
+
+Step 1: Read the plan and identify the company's core value proposition
+Step 2: Review the VC context documents for relevant investment criteria
+Step 3: For each criterion, assess alignment:
+   - What evidence from the plan supports alignment?
+   - What evidence from VC docs defines the criterion?
+   - How strong is the match (strong/medium/weak)?
+Step 4: Identify gaps where plan lacks information or shows misalignment
+Step 5: Synthesize findings into structured output
+
+Now perform this analysis:
+[Plan content]
+
+# BAD - No reasoning guidance
+Analyze this plan:
+[Plan content]
+```
+
+### Provide Context Before Task
+
+Give background before asking for action.
+
+```text
+# GOOD - Context first, then task
+## Context
+a16z is a leading venture capital firm that invests in technology companies
+across multiple stages. Their investment criteria emphasize:
+- Large addressable markets (TAM > $1B)
+- Strong founding teams with relevant experience
+- Unique technology or business model innovation
+- Clear path to product-market fit
+- Defensible competitive advantages
+
+## Task
+Using these criteria, analyze the following business plan...
+
+# BAD - Task without context
+Analyze this business plan for a16z:
+[Plan content]
+```
+
+### Use System and User Messages Appropriately
+
+Separate role definition from task.
+
+```python
+# GOOD - System message for role, user message for task
+messages = [
+    {
+        "role": "system",
+        "content": "You are an expert VC analyst specializing in a16z criteria."
+    },
+    {
+        "role": "user",
+        "content": f"Analyze this business plan: {plan_content}"
+    }
+]
+
+# BAD - Everything in user message
+messages = [
+    {
+        "role": "user",
+        "content": "You are an expert. Analyze this plan: {plan_content}"
+    }
+]
+```
+
+---
+
+## Prompt Testing
+
+### Test Prompts with Multiple Examples
+
+Validate prompts across diverse inputs.
+
+```python
+# test_prompts.py
+import pytest
+from vira.prompts import load_prompt, format_prompt
+
+test_cases = [
+    {
+        "name": "AI SaaS startup",
+        "plan": "Acme Corp builds AI-powered analytics...",
+        "expected_aligns": ["AI/ML focus", "SaaS business model"],
+    },
+    {
+        "name": "Hardware startup",
+        "plan": "TechStart makes IoT devices...",
+        "expected_aligns": ["Hardware innovation"],
+    },
+    {
+        "name": "Insufficient information",
+        "plan": "We have an idea...",
+        "expected_gaps": ["No market data", "No team info"],
+    },
+]
+
+@pytest.mark.parametrize("case", test_cases)
+def test_alignment_prompt(case):
+    """Test alignment analysis prompt with various inputs."""
+    prompt = load_prompt("alignment_analysis_v4")
+    formatted = format_prompt(prompt, plan=case["plan"])
+    
+    result = llm.invoke(formatted)
+    
+    # Verify expected alignments are found
+    for expected in case.get("expected_aligns", []):
+        assert any(expected.lower() in align["title"].lower() 
+                  for align in result["aligns"])
+```
+
+### Track Prompt Performance Metrics
+
+Monitor prompt effectiveness.
+
+```python
+from dataclasses import dataclass
+from datetime import datetime
+
+@dataclass
+class PromptMetrics:
+    """Metrics for prompt performance."""
+    prompt_version: str
+    timestamp: datetime
+    tokens_used: int
+    latency_ms: float
+    output_valid: bool
+    user_rating: float | None = None
+
+def evaluate_prompt(prompt_version: str, test_cases: list) -> dict:
+    """Evaluate prompt across test cases."""
+    metrics = []
+    
+    for case in test_cases:
+        start = time.time()
+        result = run_prompt(prompt_version, case["input"])
+        latency = (time.time() - start) * 1000
+        
+        metrics.append(PromptMetrics(
+            prompt_version=prompt_version,
+            timestamp=datetime.now(),
+            tokens_used=result.usage.total_tokens,
+            latency_ms=latency,
+            output_valid=validate_output(result.output),
+        ))
+    
+    return {
+        "avg_tokens": sum(m.tokens_used for m in metrics) / len(metrics),
+        "avg_latency": sum(m.latency_ms for m in metrics) / len(metrics),
+        "success_rate": sum(m.output_valid for m in metrics) / len(metrics),
+    }
+```
+
+### Use LangSmith for Prompt Debugging
+
+Enable tracing for prompt development.
+
+```python
+import os
+from langchain.callbacks.tracers import LangChainTracer
+
+# Enable LangSmith
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_PROJECT"] = "vira-prompt-development"
+
+tracer = LangChainTracer(project_name="vira-prompt-development")
+
+def test_prompt_with_tracing(prompt: str, input_data: dict):
+    """Test prompt with LangSmith tracing."""
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+    
+    result = llm.invoke(
+        prompt.format(**input_data),
+        config={"callbacks": [tracer]}
+    )
+    
+    # View trace in LangSmith UI
+    print(f"Trace URL: {tracer.get_run_url()}")
+    
+    return result
+```
+
+---
+
+## Prompt Iteration
+
+### A/B Test Prompt Variations
+
+Compare prompt versions systematically.
+
+```python
+def ab_test_prompts(
+    prompt_a: str,
+    prompt_b: str,
+    test_cases: list,
+    metric: str = "accuracy"
+) -> dict:
+    """A/B test two prompt versions."""
+    results_a = [evaluate(prompt_a, case) for case in test_cases]
+    results_b = [evaluate(prompt_b, case) for case in test_cases]
+    
+    return {
+        "prompt_a": {
+            "avg_score": sum(r[metric] for r in results_a) / len(results_a),
+            "results": results_a,
+        },
+        "prompt_b": {
+            "avg_score": sum(r[metric] for r in results_b) / len(results_b),
+            "results": results_b,
+        },
+    }
+
+# Usage
+results = ab_test_prompts(
+    prompt_a=load_prompt("alignment_v3"),
+    prompt_b=load_prompt("alignment_v4"),
+    test_cases=evaluation_set,
+    metric="f1_score"
+)
+
+print(f"v3 score: {results['prompt_a']['avg_score']:.3f}")
+print(f"v4 score: {results['prompt_b']['avg_score']:.3f}")
+```
+
+### Document Prompt Changes
+
+Keep changelog for prompt iterations.
+
+```markdown
+# prompts/CHANGELOG.md
+
+## alignment_analysis_v4.txt (2025-01-08)
+### Changes
+- Added explicit constraint to only cite provided sources
+- Included 3 few-shot examples
+- Clarified output JSON structure
+- Added step-by-step reasoning instructions
+
+### Results
+- Reduced hallucination rate from 12% to 3%
+- Improved source citation accuracy from 78% to 94%
+- Increased average alignment count from 3.2 to 4.1
+
+### Migration
+- No breaking changes
+- Backward compatible with v3 output format
+
+## alignment_analysis_v3.txt (2024-12-15)
+### Changes
+- Added market size criterion
+- Improved gap identification instructions
+- Shortened prompt by 20% for cost reduction
+
+### Results
+- Reduced average tokens from 850 to 680
+- Maintained accuracy at 89%
+```
+
+---
+
+## Model-Specific Considerations
+
+### Adjust for Model Capabilities
+
+Tailor prompts to model strengths.
+
+```python
+# GPT-4: Can handle complex reasoning
+gpt4_prompt = """
+Perform multi-step analysis:
+1. Identify key themes
+2. Cross-reference with criteria
+3. Assess evidence quality
+4. Generate confidence scores
+5. Synthesize findings
+"""
+
+# GPT-3.5/GPT-4o-mini: Simpler instructions
+gpt35_prompt = """
+Analyze the plan and list:
+- Alignments (with evidence)
+- Gaps (with reasoning)
+- Summary
+"""
+```
+
+### Set Appropriate Temperature
+
+Use temperature based on task type.
+
+```python
+# Deterministic analysis (temperature=0.0)
+analysis_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.0  # Consistent outputs
+)
+
+# Creative query generation (temperature=0.7)
+query_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.7  # More varied queries
+)
+
+# Summary generation (temperature=0.3)
+summary_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.3  # Balanced creativity/consistency
+)
+```
+
+---
+
+## Summary
+
+Prompt engineering in VIRA follows these principles:
+1. **Store prompts** in separate versioned files
+2. **Document format** with input/output specifications
+3. **Include examples** for few-shot learning
+4. **Use clear structure** with role, context, task, constraints
+5. **Test systematically** across diverse inputs
+6. **Track metrics** for prompt performance
+7. **A/B test** prompt variations
+8. **Document changes** in changelog
+9. **Adjust for model** capabilities and temperature
+10. **Use LangSmith** for debugging and optimization
+
+These patterns ensure effective, maintainable, and continuously improving prompts.

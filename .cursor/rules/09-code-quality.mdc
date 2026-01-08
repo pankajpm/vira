@@ -1,0 +1,535 @@
+# Code Quality & Maintenance Rules
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: Code cleanup, TODO management, import organization
+
+---
+
+## TODO Management
+
+### TODO Management by Phase
+
+#### During Prototyping
+TODOs allowed without issue references for rapid iteration:
+```python
+# TODO: Add retry logic here
+# TODO: Consider caching this query
+```
+
+#### Before Pull Request
+Choose one approach for each TODO:
+1. **Create issue and reference**: `# TODO(#123): Add retry logic`
+2. **Implement immediately**: Remove TODO, implement feature
+3. **Remove**: If no longer needed
+
+#### In Production Code
+All TODOs must have issue references or be removed.
+
+**Linting**: Configure ruff to warn on unreferenced TODOs in main/production branches.
+
+### Format TODOs Consistently
+
+Use standard format: `# TODO(#issue): Description`
+
+```python
+# Standard format
+# TODO(#123): Add retry logic for API calls
+
+# With assignee
+# TODO(@username, #123): Implement caching for vector store queries
+
+# With priority
+# TODO(HIGH, #123): Fix memory leak in WebSocket connections
+
+# With deadline
+# TODO(#123, by 2025-02-01): Migrate to new LangChain version
+```
+
+### Review TODOs Before Each Iteration Release
+
+Audit TODOs before releasing iterations.
+
+```bash
+# Find all TODOs
+rg "TODO" --type py --type ts
+
+# Find TODOs without issue references
+rg "TODO(?!\(#\d+\))" --type py --type ts
+
+# Find high-priority TODOs
+rg "TODO\(HIGH" --type py --type ts
+```
+
+---
+
+## Code Cleanup
+
+### Remove Commented Code Before Committing (Usually)
+
+**General rule**: Remove commented code before PR - use git history instead.
+
+**Acceptable exceptions**:
+1. **Alternative implementation with explanation**:
+```python
+# TODO(#156): Consider switching to streaming approach
+# Streaming version (currently disabled due to #155 memory issues):
+# result = stream_large_dataset(data)
+result = batch_process_dataset(data)
+```
+
+2. **Migration context** (temporary):
+```python
+# Old approach (removed in Iteration 2):
+# docs = vector_store.similarity_search(query, k=10)
+# New approach with hybrid search:
+docs = hybrid_retriever.retrieve(query, alpha=0.7)
+```
+
+3. **Regression prevention**:
+```python
+# DO NOT uncomment - causes race condition in #245
+# await asyncio.gather(*tasks)
+for task in tasks:
+    await task
+```
+
+**During development**: Commented code is fine for exploration. Clean up before commit.
+
+**Why remove commented code?**
+- Version control preserves history
+- Commented code creates confusion
+- Makes codebase harder to read
+- Can be recovered from git if needed
+
+### Delete Unused Imports
+
+Remove imports that aren't used (ruff will catch these).
+
+```python
+# BAD - Unused imports
+import os
+import sys
+from typing import Any, Dict, List
+from langchain_openai import ChatOpenAI
+from datetime import datetime
+
+def simple_function(text: str) -> str:
+    return text.upper()
+
+# GOOD - Only necessary imports
+def simple_function(text: str) -> str:
+    return text.upper()
+```
+
+**Automated cleanup:**
+```bash
+# Remove unused imports with ruff
+ruff check --select F401 --fix src/
+
+# Or use autoflake
+autoflake --remove-all-unused-imports --in-place src/**/*.py
+```
+
+### Remove Debug Print Statements
+
+Remove debug prints before committing (except agent progress prints).
+
+```python
+# BAD - Debug prints left in code
+def calculate_score(items: list) -> float:
+    print(f"DEBUG: items = {items}")  # Remove this
+    total = sum(item.score for item in items)
+    print(f"DEBUG: total = {total}")  # Remove this
+    return total / len(items)
+
+# GOOD - Use logging for debugging
+import logging
+logger = logging.getLogger(__name__)
+
+def calculate_score(items: list) -> float:
+    logger.debug(f"Calculating score for {len(items)} items")
+    total = sum(item.score for item in items)
+    logger.debug(f"Total score: {total}")
+    return total / len(items)
+
+# EXCEPTION - Agent progress prints are OK
+def research_node(state: AgentState) -> AgentState:
+    print("🔬 Running research...")  # Keep - user-facing progress
+    results = conduct_research(state["gaps"])
+    print(f"   ✓ Found {len(results)} results")  # Keep - user-facing
+    return state
+```
+
+### Clean Up Temporary Test Files
+
+Remove test files and scripts before committing.
+
+```bash
+# Files to clean up
+test_script.py
+temp_analysis.py
+debug_output.txt
+scratch.ipynb
+old_implementation_backup.py
+
+# Add to .gitignore if needed
+echo "temp_*.py" >> .gitignore
+echo "scratch.ipynb" >> .gitignore
+echo "debug_*.txt" >> .gitignore
+```
+
+---
+
+## Import Organization
+
+### Use isort for Automatic Organization
+
+Import organization is handled by isort. Run before committing:
+```bash
+isort src/ tests/
+```
+
+Isort automatically organizes into sections:
+1. Future imports (`from __future__ import annotations`)
+2. Standard library (`import asyncio`, `from pathlib import Path`)
+3. Third-party (`from fastapi import FastAPI`, `from langchain_openai import ChatOpenAI`)
+4. First-party (`from vira.config import settings`)
+5. Local relative (`from .utils import helper`)
+
+**Configuration**: See `[tool.isort]` in pyproject.toml
+
+**Manual rule**: Group related imports within sections for readability:
+```python
+# LangChain imports (grouped for readability)
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_core.output_parsers import PydanticOutputParser
+
+# LangGraph imports (grouped for readability)
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint import MemorySaver
+```
+
+### Use Absolute Imports for Clarity
+
+Prefer absolute imports over relative when possible.
+
+```python
+# BAD - Ambiguous relative imports
+from ...config import settings
+from ..models import User
+from .utils import helper
+
+# GOOD - Clear absolute imports
+from vira.config.settings import get_settings
+from vira.backend.models import User
+from vira.agents.utils import helper
+```
+
+### Use Type Imports Correctly
+
+Import types with `from typing import` or `from __future__ import annotations`.
+
+```python
+# Modern approach (Python 3.10+)
+from __future__ import annotations
+from typing import Literal
+
+def process(data: dict[str, Any]) -> list[str]:
+    pass
+
+def route(state: dict) -> Literal["continue", "end"]:
+    pass
+
+# Alternative - explicit Type imports
+from typing import Dict, List, Any, Literal
+
+def process(data: Dict[str, Any]) -> List[str]:
+    pass
+```
+
+---
+
+## Code Style
+
+### Follow PEP 8 for Python
+
+Adhere to Python style guidelines.
+
+```python
+# Line length: 100 characters (configured in pyproject.toml)
+# Indentation: 4 spaces
+# Naming:
+#   - snake_case for functions and variables
+#   - PascalCase for classes
+#   - UPPER_SNAKE_CASE for constants
+
+# GOOD
+MAX_RETRIES = 3
+
+class AlignmentAnalyzer:
+    def analyze_business_plan(self, plan_content: str) -> dict:
+        result_data = self._process_plan(plan_content)
+        return result_data
+
+# BAD
+maxRetries = 3  # Should be UPPER_SNAKE_CASE
+
+class alignmentAnalyzer:  # Should be PascalCase
+    def AnalyzeBusiness_plan(self, PlanContent: str) -> dict:  # Inconsistent naming
+        ResultData = self._ProcessPlan(PlanContent)
+        return ResultData
+```
+
+### Use Ruff and Black
+
+Format code with black and check with ruff.
+
+```bash
+# Format code
+black src/ tests/
+
+# Check linting
+ruff check src/ tests/
+
+# Auto-fix linting issues
+ruff check --fix src/ tests/
+
+# Check types
+mypy src/
+```
+
+### Configure Pre-Commit Hooks
+
+Set up pre-commit hooks for automatic checks.
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        language_version: python3.10
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+```
+
+---
+
+## File Organization
+
+### Prefer Focused Files (Guideline: ~500 lines)
+
+**Target**: Files under 500 lines are easier to understand and maintain.
+
+**When to split**:
+- File has multiple distinct responsibilities
+- Different domains (retrieval vs. formatting vs. validation)
+- Different change frequencies (config vs. business logic)
+- Functionality can be independently tested
+
+**When NOT to split**:
+- Functions share complex state that's hard to pass around
+- File is a complete, cohesive state machine
+- Splitting would require extensive parameter passing
+- File represents a single, well-defined concept
+
+**Indicators you should split**:
+- Struggling to name the file (sign it does too much)
+- Scrolling frequently between distant parts of file
+- Only touching one section at a time
+
+**Example of good splitting**:
+```
+# GOOD - Focused files
+agents/
+├── state.py          # State definitions only
+├── reflection.py     # Reflection agent only
+├── research.py       # Research agent only
+└── graph.py          # Graph orchestration only
+
+# BAD - Mixed concerns
+agents/
+└── agents.py         # Everything in one file (1000+ lines)
+```
+
+### Use __init__.py for Clean Imports
+
+Export public API through `__init__.py`.
+
+```python
+# agents/__init__.py
+from .graph import create_reflection_graph
+from .state import AgentState
+from .reflection import reflect_on_explanation
+from .research import conduct_research
+
+__all__ = [
+    "create_reflection_graph",
+    "AgentState",
+    "reflect_on_explanation",
+    "conduct_research",
+]
+
+# Usage
+from vira.agents import create_reflection_graph, AgentState
+```
+
+---
+
+## Naming Conventions
+
+### Use Descriptive Names
+
+Names should clearly indicate purpose.
+
+```python
+# BAD - Unclear names
+def proc(d):
+    r = []
+    for i in d:
+        r.append(i * 2)
+    return r
+
+# GOOD - Descriptive names
+def double_values(data: list[int]) -> list[int]:
+    """Double each value in the input list."""
+    doubled_values = []
+    for value in data:
+        doubled_values.append(value * 2)
+    return doubled_values
+
+# BETTER - More Pythonic
+def double_values(data: list[int]) -> list[int]:
+    """Double each value in the input list."""
+    return [value * 2 for value in data]
+```
+
+### Avoid Abbreviations
+
+Use full words unless abbreviation is standard.
+
+```python
+# BAD - Unclear abbreviations
+def calc_conf_scr(res):
+    pass
+
+# GOOD - Full words
+def calculate_confidence_score(result):
+    pass
+
+# ACCEPTABLE - Standard abbreviations
+def get_api_url():  # API is standard
+    pass
+
+def fetch_html_content():  # HTML is standard
+    pass
+```
+
+---
+
+## Refactoring
+
+### Extract Magic Numbers to Constants
+
+Replace hardcoded values with named constants.
+
+```python
+# BAD - Magic numbers
+if len(results) > 10:
+    results = results[:10]
+
+if confidence < 0.7:
+    trigger_research()
+
+# GOOD - Named constants
+MAX_RESULTS = 10
+RESEARCH_CONFIDENCE_THRESHOLD = 0.7
+
+if len(results) > MAX_RESULTS:
+    results = results[:MAX_RESULTS]
+
+if confidence < RESEARCH_CONFIDENCE_THRESHOLD:
+    trigger_research()
+```
+
+### Extract Complex Conditions
+
+Move complex conditions to named functions.
+
+```python
+# BAD - Complex inline condition
+if (user.is_active and user.has_permission('analyze') and 
+    user.subscription_status == 'active' and user.credits > 0):
+    perform_analysis()
+
+# GOOD - Extracted to function
+def can_perform_analysis(user: User) -> bool:
+    """Check if user can perform analysis."""
+    return (
+        user.is_active and
+        user.has_permission('analyze') and
+        user.subscription_status == 'active' and
+        user.credits > 0
+    )
+
+if can_perform_analysis(user):
+    perform_analysis()
+```
+
+### Extract Repeated Logic
+
+Don't repeat yourself - extract to functions.
+
+```python
+# BAD - Repeated logic
+result1 = await api.call(url1)
+if result1.status_code != 200:
+    logger.error(f"API call failed: {result1.status_code}")
+    raise APIError(result1.text)
+
+result2 = await api.call(url2)
+if result2.status_code != 200:
+    logger.error(f"API call failed: {result2.status_code}")
+    raise APIError(result2.text)
+
+# GOOD - Extracted function
+async def call_api_with_error_handling(url: str):
+    """Call API and handle errors."""
+    result = await api.call(url)
+    if result.status_code != 200:
+        logger.error(f"API call to {url} failed: {result.status_code}")
+        raise APIError(result.text)
+    return result
+
+result1 = await call_api_with_error_handling(url1)
+result2 = await call_api_with_error_handling(url2)
+```
+
+---
+
+## Summary
+
+Code quality in VIRA follows these principles:
+1. **TODO management** with issue references
+2. **Remove commented code** before committing
+3. **Delete unused imports** and debug statements
+4. **Organize imports** in standard order
+5. **Follow PEP 8** and use ruff/black
+6. **Keep files focused** and under 500 lines
+7. **Use descriptive names** without abbreviations
+8. **Extract constants** and complex logic
+9. **Don't repeat yourself** - refactor common patterns
+
+These patterns ensure clean, maintainable, and professional code quality.

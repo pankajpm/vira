@@ -1,0 +1,635 @@
+# Documentation Standards
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: Module docstrings, ADRs, API documentation, type documentation
+
+---
+
+## Module Docstrings
+
+### Start with One-Line Summary
+
+Begin module docstrings with a concise summary.
+
+```python
+"""Research agent for autonomous gap-filling via web search.
+
+This module implements the research agent that:
+- Generates optimized search queries from information gaps
+- Executes web searches via Serper API
+- Parses and filters search results
+- Manages research budget (max 5 queries per analysis)
+"""
+
+from __future__ import annotations
+# ... rest of module
+```
+
+### List Key Classes and Functions
+
+Document main components with brief descriptions.
+
+```python
+"""LangGraph orchestration for Iteration 2 reflective agent workflow.
+
+This module defines the state graph that orchestrates the multi-step
+reflection and research workflow. The graph routes between initial analysis,
+reflection, research, and regeneration based on confidence thresholds.
+
+Key Components:
+- initial_analysis_node: Executes RAG-based alignment analysis
+- reflection_node: Assesses confidence and identifies gaps
+- research_node: Conducts web search for information gaps
+- regenerate_node: Updates analysis with research findings
+- create_reflection_graph: Compiles the complete workflow graph
+
+Routing Logic:
+- Low confidence (< 0.7) → triggers research
+- High confidence (≥ 0.7) → skips research
+- Max iterations (2) → terminates workflow
+"""
+```
+
+### Document Iteration Introduced
+
+Mark which iteration introduced the module or feature.
+
+```python
+"""Reflection agent for self-critique and confidence assessment.
+
+**Iteration**: 2  
+**Dependencies**: Iteration 1 RAG pipeline, LangChain, OpenAI
+
+This module implements the reflection agent that:
+- Analyzes alignment explanations for completeness
+- Assigns confidence scores to each alignment/gap
+- Identifies information gaps requiring research
+- Provides overall confidence assessment
+
+The reflection agent is a key component of Iteration 2's self-aware
+analysis capability.
+"""
+```
+
+### Include Usage Examples for Complex Modules
+
+Add examples for modules with non-obvious usage.
+
+```python
+"""Hybrid retrieval combining dense and sparse search.
+
+This module implements a hybrid retrieval strategy that combines:
+- Dense retrieval using vector similarity (ChromaDB)
+- Sparse retrieval using BM25 keyword matching
+- Reciprocal Rank Fusion (RRF) for result merging
+
+Usage:
+    ```python
+    from vira.retrieval.hybrid import HybridRetriever
+    
+    retriever = HybridRetriever(
+        vector_store=vector_store,
+        k=10,
+        alpha=0.5  # Weight between dense and sparse
+    )
+    
+    docs = await retriever.retrieve("AI-powered analytics")
+    ```
+
+Configuration:
+- k: Number of documents to retrieve (default: 10)
+- alpha: Weight for dense vs sparse (0.0 = sparse only, 1.0 = dense only)
+"""
+```
+
+---
+
+## Function and Class Docstrings
+
+### Use Google Style Docstrings
+
+Follow Google docstring format for consistency.
+
+```python
+def conduct_research(
+    gaps: list[InformationGap],
+    company_name: str,
+    max_queries: int = 5,
+    baseline_mode: bool = False
+) -> list[ResearchResult]:
+    """Conduct web research to fill information gaps.
+    
+    Generates optimized search queries from information gaps and executes
+    web searches via Serper API. Returns structured research results with
+    snippets and sources.
+    
+    Args:
+        gaps: List of information gaps identified by reflection agent
+        company_name: Name of company being analyzed
+        max_queries: Maximum number of search queries to execute
+        baseline_mode: If True, run baseline queries instead of gap-driven
+        
+    Returns:
+        List of ResearchResult objects containing:
+        - query: The search query executed
+        - snippets: Relevant text snippets from results
+        - sources: URLs of source documents
+        - gap_addressed: Which gap this research addresses
+        
+    Raises:
+        ValueError: If max_queries < 1 or > 10
+        APIError: If Serper API call fails
+        
+    Example:
+        ```python
+        gaps = [
+            InformationGap(
+                category="market_size",
+                description="No data on TAM/SAM"
+            )
+        ]
+        
+        results = conduct_research(
+            gaps=gaps,
+            company_name="Acme Corp",
+            max_queries=3
+        )
+        
+        for result in results:
+            print(f"Query: {result.query}")
+            print(f"Found {len(result.snippets)} snippets")
+        ```
+    """
+    # Implementation
+    ...
+```
+
+### Document Type Parameters
+
+Add type information in docstrings for clarity.
+
+```python
+class AgentState(TypedDict, total=False):
+    """State dictionary for LangGraph agent workflow.
+    
+    This TypedDict defines the complete state structure passed between
+    agent nodes. Fields marked as optional (total=False) may not be
+    present in all states.
+    
+    Required Fields:
+        company_name (str): Name of company being analyzed
+        plan_summary (str): Summary of business plan content
+        query (str): User's analysis query
+        
+    Optional Fields:
+        initial_docs (list[dict]): Documents retrieved in initial analysis
+        initial_explanation (AlignmentResponse | None): First analysis result
+        reflection_result (ReflectionResult | None): Reflection assessment
+        research_results (list[ResearchResult]): Web research findings
+        final_explanation (AlignmentResponse | None): Updated analysis
+        overall_confidence (float): Confidence score (0.0-1.0)
+        iteration_count (int): Number of reflection iterations
+        error (str | None): Error message if operation failed
+    """
+    # Field definitions
+    ...
+```
+
+---
+
+## Architecture Decision Records (ADRs)
+
+### Create ADRs for Significant Technical Choices
+
+Document important architectural decisions.
+
+```markdown
+# ADR-003: LangGraph for Agent Orchestration
+
+**Status**: Accepted  
+**Date**: 2025-11-15  
+**Deciders**: Engineering Team  
+**Iteration**: 2
+
+## Context
+
+Iteration 2 requires orchestrating multiple agents (reflection, research) with
+conditional routing based on confidence scores. We need a framework that:
+- Supports complex multi-step workflows
+- Enables conditional branching
+- Provides state management
+- Allows streaming intermediate results
+- Integrates with LangChain
+
+## Decision
+
+We will use LangGraph for agent orchestration instead of:
+- Custom orchestration code
+- LangChain's AgentExecutor
+- Prefect/Airflow
+
+## Consequences
+
+### Positive
+- Type-safe state management with TypedDict
+- Visual graph representation for debugging
+- Built-in streaming support
+- Native LangChain integration
+- Active development and community
+
+### Negative
+- Learning curve for new framework
+- Relatively new (potential breaking changes)
+- Limited documentation compared to mature frameworks
+- Adds dependency to project
+
+### Neutral
+- Requires Python 3.10+ (already our target)
+- Graph compilation adds startup overhead (negligible)
+
+## Alternatives Considered
+
+### 1. Custom Orchestration
+- **Pros**: Full control, no dependencies
+- **Cons**: Reinventing the wheel, maintenance burden
+- **Rejected**: Not worth the engineering cost
+
+### 2. LangChain AgentExecutor
+- **Pros**: Simple, well-documented
+- **Cons**: Limited conditional routing, harder to stream
+- **Rejected**: Insufficient for complex workflows
+
+### 3. Prefect/Airflow
+- **Pros**: Mature, battle-tested
+- **Cons**: Heavyweight, not designed for LLM agents
+- **Rejected**: Overkill for our use case
+
+## Implementation Notes
+
+- Use StateGraph with TypedDict for type safety
+- Implement node functions with signature: `(state) -> state`
+- Handle errors gracefully with state["error"]
+- Use conditional_edges for routing logic
+- Stream intermediate states for progress updates
+
+## References
+
+- LangGraph Documentation: https://langchain-ai.github.io/langgraph/
+- Iteration 2 Design Doc: docs/04-IMPLEMENTATION/02-Iteration2-Implementation.md
+```
+
+### ADR Format
+
+Use consistent structure for all ADRs.
+
+```markdown
+# ADR-XXX: Title
+
+**Status**: Proposed | Accepted | Deprecated | Superseded  
+**Date**: YYYY-MM-DD  
+**Deciders**: Who made the decision  
+**Iteration**: Which iteration this affects (if applicable)
+
+## Context
+What is the issue we're facing? What constraints exist?
+
+## Decision
+What did we decide to do?
+
+## Consequences
+What are the positive, negative, and neutral consequences?
+
+## Alternatives Considered
+What other options did we evaluate and why were they rejected?
+
+## Implementation Notes
+Specific guidance for implementing this decision.
+
+## References
+Links to related docs, discussions, or external resources.
+```
+
+### Store ADRs in Dedicated Directory
+
+Keep ADRs organized and discoverable.
+
+```
+docs/
+└── 06-REFERENCE/
+    └── Architecture-Decision-Records/
+        ├── ADR-001-Chroma-vs-Alternatives.md
+        ├── ADR-002-JSONL-for-Raw-Data.md
+        ├── ADR-003-LangGraph-Orchestration.md
+        └── ADR-004-React-vs-Chainlit.md
+```
+
+### Number ADRs Sequentially
+
+Use zero-padded sequential numbering: ADR-001, ADR-002, etc.
+
+---
+
+## API Documentation
+
+### Document All FastAPI Routes
+
+Add comprehensive docstrings to all API endpoints.
+
+```python
+@app.post("/sessions/{session_id}/analyze", response_model=AlignmentResponse)
+async def analyze_business_plan(
+    session_id: str,
+    request: AnalysisRequest,
+    vector_store: VectorStoreManager = Depends(get_vector_store)
+) -> AlignmentResponse:
+    """Analyze business plan alignment with VC investment criteria.
+    
+    This endpoint performs a comprehensive alignment analysis by:
+    1. Retrieving relevant VC content from vector store
+    2. Analyzing alignment using RAG pipeline
+    3. Optionally running reflection and research (if enabled)
+    4. Returning structured alignment report
+    
+    **Iteration 1**: Basic RAG analysis  
+    **Iteration 2**: Adds reflection and research (if ENABLE_REFLECTION=true)
+    
+    Args:
+        session_id: UUID of the session
+        request: Analysis request with plan content
+        vector_store: Injected vector store dependency
+        
+    Returns:
+        AlignmentResponse with:
+        - aligns: List of alignment points with evidence
+        - gaps: List of gaps/misalignments
+        - summary: Executive summary
+        - overall_confidence: Confidence score (Iteration 2)
+        - research_conducted: Research queries executed (Iteration 2)
+        
+    Raises:
+        HTTPException(404): Session not found
+        HTTPException(400): Invalid request format
+        HTTPException(500): Analysis failed
+        
+    Example Request:
+        ```json
+        {
+            "plan_content": "Acme Corp is building an AI-powered...",
+            "query": "Analyze alignment with a16z investment criteria"
+        }
+        ```
+        
+    Example Response:
+        ```json
+        {
+            "company_name": "Acme Corp",
+            "aligns": [
+                {
+                    "title": "AI/ML Focus",
+                    "explanation": "Strong alignment with a16z's AI thesis...",
+                    "sources": ["https://a16z.com/ai-thesis/"],
+                    "confidence": 0.9
+                }
+            ],
+            "gaps": [...],
+            "summary": "Overall strong alignment with...",
+            "overall_confidence": 0.85
+        }
+        ```
+    """
+    # Implementation
+    ...
+```
+
+### Include Request/Response Examples
+
+Show concrete examples of API usage.
+
+```python
+@app.post("/sessions", response_model=Session)
+async def create_session(request: CreateSessionRequest) -> Session:
+    """Create a new analysis session.
+    
+    Request Body:
+        ```json
+        {
+            "company_name": "Acme Corp"
+        }
+        ```
+    
+    Response:
+        ```json
+        {
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "company_name": "Acme Corp",
+            "created_at": "2025-01-08T10:30:00Z",
+            "updated_at": "2025-01-08T10:30:00Z",
+            "status": "active"
+        }
+        ```
+    """
+    ...
+```
+
+### Specify Error Codes and Conditions
+
+Document all possible error responses.
+
+```python
+@app.get("/sessions/{session_id}", response_model=Session)
+async def get_session(session_id: str) -> Session:
+    """Retrieve session by ID.
+    
+    Error Responses:
+        - 404: Session not found
+            ```json
+            {"detail": "Session 550e8400-... not found"}
+            ```
+        - 400: Invalid session ID format
+            ```json
+            {"detail": "Invalid UUID format"}
+            ```
+    """
+    ...
+```
+
+### Link to API Contract Docs
+
+Reference detailed API specifications.
+
+```python
+@app.post("/analyze")
+async def analyze(request: AnalysisRequest):
+    """Analyze business plan alignment.
+    
+    See Also:
+        - API Contract: docs/03-API-CONTRACTS/01-REST-API-Specification.md
+        - Data Schemas: docs/03-API-CONTRACTS/02-Data-Schemas.md
+        - Integration Guide: docs/03-API-CONTRACTS/04-Integration-Points.md
+    """
+    ...
+```
+
+---
+
+## Type Documentation
+
+### Export Types from Centralized Locations
+
+Organize types for easy discovery.
+
+```typescript
+// types/index.ts - Central type exports
+
+// Core models
+export type { Session, Message, BusinessPlan } from './models';
+
+// Analysis types
+export type { 
+    AlignmentResponse, 
+    AlignmentItem, 
+    ResearchItem 
+} from './analysis';
+
+// API types
+export type { APIError, APIResponse } from './api';
+
+// Component types
+export type { ChatPanelProps, MessageProps } from './components';
+```
+
+### Add JSDoc Comments for Complex Types
+
+Document non-obvious type structures.
+
+```typescript
+/**
+ * Alignment response from analysis API.
+ * 
+ * @property company_name - Name of company analyzed
+ * @property aligns - List of alignment points with evidence
+ * @property gaps - List of gaps/misalignments
+ * @property summary - Executive summary of analysis
+ * @property overall_confidence - Confidence score (0.0-1.0), added in Iteration 2
+ * @property research_conducted - Research queries executed, added in Iteration 2
+ * 
+ * @example
+ * ```typescript
+ * const response: AlignmentResponse = {
+ *   company_name: "Acme Corp",
+ *   aligns: [{
+ *     title: "AI Focus",
+ *     explanation: "Strong AI/ML capabilities...",
+ *     sources: ["https://a16z.com/ai/"],
+ *     confidence: 0.9
+ *   }],
+ *   gaps: [],
+ *   summary: "Strong alignment overall",
+ *   overall_confidence: 0.85
+ * };
+ * ```
+ */
+export interface AlignmentResponse {
+    company_name: string;
+    aligns: AlignmentItem[];
+    gaps: AlignmentItem[];
+    summary: string;
+    overall_confidence?: number;  // Iteration 2
+    research_conducted?: ResearchItem[];  // Iteration 2
+}
+```
+
+### Document Iteration When Fields Added
+
+Mark which iteration introduced fields.
+
+```typescript
+export interface AlignmentItem {
+    title: string;
+    explanation: string;
+    sources: string[];
+    
+    // Iteration 2 additions
+    confidence?: number;  // Added: Iteration 2
+    evidence_quality?: 'strong' | 'medium' | 'weak' | 'insufficient';  // Added: Iteration 2
+}
+```
+
+---
+
+## Code Comments
+
+### Explain Why, Not What
+
+Comments should explain reasoning, not restate code.
+
+```python
+# BAD - Restates what code does
+# Loop through gaps
+for gap in gaps:
+    # Create query
+    query = create_query(gap)
+    # Execute search
+    results = search(query)
+
+# GOOD - Explains why
+# Limit to 5 queries to stay within API budget and avoid diminishing returns
+for gap in gaps[:5]:
+    # Use company name in query to improve relevance
+    query = f"{company_name} {gap.description}"
+    results = search(query)
+```
+
+### Mark TODOs with Issue References
+
+Link TODOs to tracking issues.
+
+```python
+# TODO(#42): Re-run analysis with research context instead of just appending
+# Current implementation appends research metadata without regenerating
+# the explanation. This is a temporary solution for prototype.
+explanation.research_conducted.append(research_metadata)
+```
+
+### Document Complex Algorithms
+
+Explain non-obvious logic.
+
+```python
+def reciprocal_rank_fusion(
+    dense_results: list[Document],
+    sparse_results: list[Document],
+    k: int = 60
+) -> list[Document]:
+    """Merge dense and sparse results using Reciprocal Rank Fusion.
+    
+    RRF Formula: score(d) = Σ 1 / (k + rank(d))
+    
+    This approach:
+    1. Doesn't require score normalization (ranks are comparable)
+    2. Gives higher weight to documents ranked highly in multiple lists
+    3. Parameter k controls how quickly scores decrease with rank
+       (higher k = more uniform weighting)
+    
+    Reference: "Reciprocal Rank Fusion outperforms Condorcet and
+    individual Rank Learning Methods" (Cormack et al., 2009)
+    """
+    # Implementation
+    ...
+```
+
+---
+
+## Summary
+
+Documentation in VIRA follows these principles:
+1. **Module docstrings** with summary, components, and usage
+2. **ADRs** for significant technical decisions
+3. **API documentation** with examples and error codes
+4. **Type documentation** with JSDoc comments
+5. **Iteration markers** showing when features were added
+6. **Code comments** explaining why, not what
+7. **TODO references** linking to tracking issues
+
+These patterns ensure maintainable, discoverable, and well-documented code.

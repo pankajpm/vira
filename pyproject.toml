@@ -63,7 +63,19 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-select = ["E", "F", "I", "B", "UP", "N", "ANN", "C4"]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+    "UP007",  # Use X | Y for type unions
+    "F401",   # Unused imports
+    "N",      # pep8-naming
+    "ANN",    # annotations
+    "C4",     # flake8-comprehensions
+]
 ignore = ["ANN101", "ANN102", "ANN401"]
 
 [tool.black]
@@ -76,9 +88,15 @@ testpaths = ["tests"]
 
 [tool.mypy]
 python_version = "3.10"
+warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 no_implicit_optional = true
 strict_optional = true
 ignore_missing_imports = true
 
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["vira"]
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]

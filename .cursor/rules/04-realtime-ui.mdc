@@ -1,0 +1,632 @@
+# Real-Time UI Patterns
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: WebSocket communication, optimistic updates, streaming UI
+
+---
+
+## WebSocket State Management
+
+### Use Refs for In-Flight Operation Tracking
+
+Track ongoing operations with refs to avoid unnecessary re-renders.
+
+```typescript
+const ChatPanel: React.FC<Props> = ({ session }) => {
+  // Track which session is currently being analyzed
+  const analysisInProgressRef = useRef<string | null>(null);
+  
+  // Track pending timeouts
+  const analysisTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Track polling intervals
+  const reflectionPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Flag to prevent server state from overwriting optimistic updates
+  const hasOptimisticMessagesRef = useRef<boolean>(false);
+  
+  useEffect(() => {
+    // Cleanup on unmount
+    return () => {
+      if (analysisTimeoutRef.current) {
+        clearTimeout(analysisTimeoutRef.current);
+      }
+      if (reflectionPollIntervalRef.current) {
+        clearInterval(reflectionPollIntervalRef.current);
+      }
+    };
+  }, []);
+};
+```
+
+**Why Refs?**
+- Don't trigger re-renders when updated
+- Persist across renders
+- Perfect for tracking async operations
+- Enable proper cleanup
+
+### Implement Cleanup in useEffect
+
+Always clean up WebSocket connections and timers.
+
+```typescript
+useEffect(() => {
+  if (!session?.id) return;
+  
+  // Create WebSocket connection
+  const ws = new WebSocket(`ws://localhost:8001/ws/${session.id}`);
+  
+  ws.onopen = () => {
+    console.log('WebSocket connected');
+  };
+  
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    handleMessage(data);
+  };
+  
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+  };
+  
+  ws.onclose = () => {
+    console.log('WebSocket disconnected');
+  };
+  
+  // Cleanup function - CRITICAL
+  return () => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.close();
+    }
+  };
+}, [session?.id]);
+```
+
+### Handle Reconnection Logic
+
+Implement exponential backoff for reconnection.
+
+```typescript
+const useWebSocket = (sessionId: string | null) => {
+  const [isConnected, setIsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 5;
+  
+  const connect = useCallback(() => {
+    if (!sessionId) return;
+    
+    const ws = new WebSocket(`ws://localhost:8001/ws/${sessionId}`);
+    
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setIsConnected(true);
+      reconnectAttempts.current = 0;
+    };
+    
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      setIsConnected(false);
+      
+      // Attempt reconnection with exponential backoff
+      if (reconnectAttempts.current < maxReconnectAttempts) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+        console.log(`Reconnecting in ${delay}ms...`);
+        
+        setTimeout(() => {
+          reconnectAttempts.current++;
+          connect();
+        }, delay);
+      }
+    };
+    
+    wsRef.current = ws;
+  }, [sessionId]);
+  
+  useEffect(() => {
+    connect();
+    return () => {
+      wsRef.current?.close();
+    };
+  }, [connect]);
+  
+  return { isConnected, ws: wsRef.current };
+};
+```
+
+### Queue Messages During Disconnection
+
+Buffer messages when WebSocket is disconnected.
+
+```typescript
+const useWebSocketWithQueue = (sessionId: string | null) => {
+  const [isConnected, setIsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const messageQueue = useRef<string[]>([]);
+  
+  const sendMessage = useCallback((message: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(message);
+    } else {
+      // Queue message for later
+      messageQueue.current.push(message);
+      console.log('Message queued (WebSocket not connected)');
+    }
+  }, []);
+  
+  useEffect(() => {
+    // ... WebSocket setup ...
+    
+    ws.onopen = () => {
+      setIsConnected(true);
+      
+      // Send queued messages
+      while (messageQueue.current.length > 0) {
+        const msg = messageQueue.current.shift();
+        if (msg) ws.send(msg);
+      }
+    };
+    
+    // ... rest of setup ...
+  }, [sessionId]);
+  
+  return { isConnected, sendMessage };
+};
+```
+
+---
+
+## Optimistic Updates
+
+### Set Optimistic State Immediately
+
+Update UI immediately for better perceived performance.
+
+```typescript
+const handleSendMessage = async () => {
+  if (!input.trim() || !session) return;
+  
+  const userMessage: Message = {
+    id: `temp-${Date.now()}`,  // Temporary ID
+    session_id: session.id,
+    role: 'user',
+    content: input,
+    created_at: new Date().toISOString(),
+  };
+  
+  // Optimistic update - show immediately
+  setMessages(prev => [...prev, userMessage]);
+  setInput('');
+  
+  try {
+    // Send to server
+    const savedMessage = await messageAPI.create(session.id, input);
+    
+    // Replace temp message with server version
+    setMessages(prev => 
+      prev.map(msg => msg.id === userMessage.id ? savedMessage : msg)
+    );
+  } catch (error) {
+    console.error('Failed to send message:', error);
+    
+    // Rollback on error
+    setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
+    
+    // Show error to user
+    setError('Failed to send message');
+  }
+};
+```
+
+### Use Flags to Prevent Server Overwrites
+
+Prevent server state from overwriting optimistic updates.
+
+```typescript
+const ChatPanel: React.FC<Props> = ({ session, messages, setMessages }) => {
+  const hasOptimisticMessagesRef = useRef(false);
+  
+  const loadMessages = async () => {
+    if (!session) return;
+    
+    // Skip loading if we just set optimistic messages
+    if (hasOptimisticMessagesRef.current) {
+      console.log('Skipping load - optimistic messages present');
+      return;
+    }
+    
+    const msgs = await messageAPI.list(session.id);
+    setMessages(msgs);
+  };
+  
+  const handleSendMessage = async () => {
+    // Set optimistic message
+    const tempMessage = createTempMessage(input);
+    setMessages(prev => [...prev, tempMessage]);
+    
+    // Set flag to prevent load from overwriting
+    hasOptimisticMessagesRef.current = true;
+    
+    // Reset flag after a delay
+    setTimeout(() => {
+      hasOptimisticMessagesRef.current = false;
+    }, 1000);
+    
+    // Send to server
+    await messageAPI.create(session.id, input);
+  };
+  
+  useEffect(() => {
+    loadMessages();
+  }, [session?.id]);
+};
+```
+
+### Implement Rollback Logic on Errors
+
+Revert optimistic updates when operations fail.
+
+```typescript
+const handleAnalyze = async () => {
+  if (!session || !currentPlan) return;
+  
+  // Optimistic: Show analyzing state
+  setIsAnalyzing(true);
+  
+  const optimisticMessage: Message = {
+    id: `temp-${Date.now()}`,
+    session_id: session.id,
+    role: 'assistant',
+    content: 'Analyzing your business plan...',
+    created_at: new Date().toISOString(),
+  };
+  
+  setMessages(prev => [...prev, optimisticMessage]);
+  
+  try {
+    const result = await analysisAPI.analyze(session.id, currentPlan.content);
+    
+    // Replace optimistic message with real result
+    const realMessage: Message = {
+      ...optimisticMessage,
+      id: result.message_id,
+      content: formatAnalysisResult(result),
+    };
+    
+    setMessages(prev => 
+      prev.map(msg => msg.id === optimisticMessage.id ? realMessage : msg)
+    );
+    
+  } catch (error) {
+    console.error('Analysis failed:', error);
+    
+    // Rollback: Remove optimistic message
+    setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id));
+    
+    // Show error message instead
+    const errorMessage: Message = {
+      id: `error-${Date.now()}`,
+      session_id: session.id,
+      role: 'assistant',
+      content: `Analysis failed: ${error.message}`,
+      created_at: new Date().toISOString(),
+    };
+    
+    setMessages(prev => [...prev, errorMessage]);
+    
+  } finally {
+    setIsAnalyzing(false);
+  }
+};
+```
+
+### Show Loading States During Server Sync
+
+Display loading indicators while waiting for server confirmation.
+
+```typescript
+interface MessageWithStatus extends Message {
+  status?: 'sending' | 'sent' | 'error';
+}
+
+const ChatMessage: React.FC<{ message: MessageWithStatus }> = ({ message }) => {
+  return (
+    <div className={`message ${message.role}`}>
+      <div className="content">{message.content}</div>
+      
+      {message.status === 'sending' && (
+        <span className="status">Sending...</span>
+      )}
+      
+      {message.status === 'error' && (
+        <span className="status error">Failed to send</span>
+      )}
+    </div>
+  );
+};
+```
+
+---
+
+## Real-Time Streaming
+
+### Use flushSync for Immediate DOM Updates
+
+Force immediate DOM updates during streaming.
+
+```typescript
+import { flushSync } from 'react-dom';
+
+const handleStreamingResponse = (chunk: string) => {
+  // Force immediate DOM update (bypasses React batching)
+  flushSync(() => {
+    setStreamingContent(prev => prev + chunk);
+  });
+  
+  // Auto-scroll to bottom
+  messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+};
+```
+
+**When to use flushSync:**
+- Streaming text updates
+- Real-time progress indicators
+- Immediate scroll synchronization
+
+**Warning**: Use sparingly - bypasses React's batching optimization.
+
+### Auto-Scroll to Bottom on New Messages
+
+Implement smooth auto-scrolling for chat interfaces.
+
+```typescript
+const ChatPanel: React.FC = () => {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+  
+  return (
+    <div className="messages-container">
+      {messages.map(msg => (
+        <ChatMessage key={msg.id} message={msg} />
+      ))}
+      <div ref={messagesEndRef} />
+    </div>
+  );
+};
+```
+
+### Debounce User Input
+
+Reduce API calls by debouncing input.
+
+```typescript
+import { useState, useEffect } from 'react';
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+  
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+    
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [value, delay]);
+  
+  return debouncedValue;
+}
+
+// Usage
+const SearchComponent: React.FC = () => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
+  
+  useEffect(() => {
+    if (debouncedSearchTerm) {
+      // Only search after user stops typing for 500ms
+      performSearch(debouncedSearchTerm);
+    }
+  }, [debouncedSearchTerm]);
+  
+  return (
+    <input
+      value={searchTerm}
+      onChange={e => setSearchTerm(e.target.value)}
+      placeholder="Search..."
+    />
+  );
+};
+```
+
+### Cancel Pending Requests on Component Unmount
+
+Prevent memory leaks by canceling in-flight requests.
+
+```typescript
+useEffect(() => {
+  const controller = new AbortController();
+  
+  const fetchData = async () => {
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal
+      });
+      const data = await response.json();
+      setData(data);
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('Request cancelled');
+      } else {
+        console.error('Fetch error:', error);
+      }
+    }
+  };
+  
+  fetchData();
+  
+  // Cancel on unmount
+  return () => {
+    controller.abort();
+  };
+}, [url]);
+```
+
+---
+
+## Progress Tracking
+
+### Implement Progress Indicators
+
+Show real-time progress for long-running operations.
+
+```typescript
+interface AnalysisProgress {
+  status: 'retrieving' | 'analyzing' | 'complete' | 'error';
+  message: string;
+  progress?: number;
+}
+
+const AnalysisProgressBar: React.FC<{ progress: AnalysisProgress }> = ({ progress }) => {
+  const getStatusIcon = () => {
+    switch (progress.status) {
+      case 'retrieving': return '🔍';
+      case 'analyzing': return '🤔';
+      case 'complete': return '✓';
+      case 'error': return '❌';
+    }
+  };
+  
+  return (
+    <div className="progress-container">
+      <div className="progress-status">
+        <span className="icon">{getStatusIcon()}</span>
+        <span className="message">{progress.message}</span>
+      </div>
+      
+      {progress.progress !== undefined && (
+        <div className="progress-bar">
+          <div 
+            className="progress-fill" 
+            style={{ width: `${progress.progress}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+### Stream Progress Updates via WebSocket
+
+Handle real-time progress updates.
+
+```typescript
+const { lastMessage } = useWebSocket(session?.id || null);
+
+useEffect(() => {
+  if (!lastMessage) return;
+  
+  const data = JSON.parse(lastMessage.data);
+  
+  switch (data.type) {
+    case 'progress':
+      setProgress({
+        status: data.status,
+        message: data.message,
+        progress: data.progress,
+      });
+      break;
+      
+    case 'complete':
+      setProgress({ status: 'complete', message: 'Analysis complete!' });
+      setResult(data.result);
+      break;
+      
+    case 'error':
+      setProgress({ status: 'error', message: data.error });
+      break;
+  }
+}, [lastMessage]);
+```
+
+---
+
+## Best Practices
+
+### Separate WebSocket Logic into Custom Hook
+
+Extract WebSocket logic for reusability.
+
+```typescript
+// hooks/useWebSocket.ts
+export const useWebSocket = (sessionId: string | null) => {
+  const [lastMessage, setLastMessage] = useState<MessageEvent | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  
+  useEffect(() => {
+    if (!sessionId) return;
+    
+    const ws = new WebSocket(`ws://localhost:8001/ws/${sessionId}`);
+    
+    ws.onopen = () => setIsConnected(true);
+    ws.onclose = () => setIsConnected(false);
+    ws.onmessage = (event) => setLastMessage(event);
+    
+    wsRef.current = ws;
+    
+    return () => {
+      ws.close();
+    };
+  }, [sessionId]);
+  
+  const sendMessage = useCallback((message: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(message);
+    }
+  }, []);
+  
+  return { lastMessage, isConnected, sendMessage };
+};
+```
+
+### Handle Connection State in UI
+
+Show connection status to users.
+
+```typescript
+const ConnectionIndicator: React.FC<{ isConnected: boolean }> = ({ isConnected }) => {
+  return (
+    <div className={`connection-status ${isConnected ? 'connected' : 'disconnected'}`}>
+      <span className="indicator" />
+      <span className="text">
+        {isConnected ? 'Connected' : 'Disconnected'}
+      </span>
+    </div>
+  );
+};
+```
+
+---
+
+## Summary
+
+Real-time UI patterns in VIRA follow these principles:
+1. **Use refs** for tracking in-flight operations
+2. **Implement cleanup** in all useEffect hooks
+3. **Optimistic updates** for perceived performance
+4. **Rollback logic** for error handling
+5. **flushSync** for immediate streaming updates
+6. **Debouncing** to reduce API calls
+7. **Progress indicators** for long operations
+8. **Connection state** visibility
+
+These patterns ensure responsive, reliable real-time user experiences.

@@ -1,0 +1,510 @@
+# Configuration Management Rules
+
+**Version**: 2.0  
+**Last Updated**: January 8, 2026  
+**Scope**: Pydantic Settings, environment variables, feature flags
+
+---
+
+## Pydantic Settings Pattern
+
+### Use Field with Alias for Environment Variables
+
+Map environment variables to settings fields using aliases.
+
+```python
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    # Map OPENAI_API_KEY env var to openai_api_key field
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    serper_api_key: str | None = Field(default=None, alias="SERPER_API_KEY")
+    
+    # Map LANGCHAIN_API_KEY to langchain_api_key
+    langchain_api_key: str | None = Field(default=None, alias="LANGCHAIN_API_KEY")
+    langchain_project: str | None = Field(default=None, alias="LANGCHAIN_PROJECT")
+```
+
+**Why aliases?**
+- Environment variables use UPPER_SNAKE_CASE convention
+- Python fields use lower_snake_case convention
+- Aliases bridge the gap
+
+### Provide Sensible Defaults
+
+All settings should have reasonable default values.
+
+```python
+from pathlib import Path
+from pydantic import Field
+
+class Settings(BaseSettings):
+    # API configuration with defaults
+    api_host: str = Field(default="0.0.0.0", alias="API_HOST")
+    api_port: int = Field(default=8000, alias="API_PORT")
+    
+    # Model configuration with defaults
+    embedding_model: str = Field(
+        default="text-embedding-3-small", 
+        alias="EMBEDDING_MODEL"
+    )
+    
+    # Paths with defaults
+    vector_db_dir: Path = Field(
+        default=Path("./data/processed/chroma"), 
+        alias="VECTOR_DB_DIR"
+    )
+    
+    # Feature flags with defaults
+    enable_reflection: bool = Field(default=False, alias="ENABLE_REFLECTION")
+    
+    # Numeric settings with defaults
+    max_research_queries: int = Field(default=5, alias="MAX_RESEARCH_QUERIES")
+    reflection_confidence_threshold: float = Field(
+        default=0.7, 
+        alias="REFLECTION_CONFIDENCE_THRESHOLD"
+    )
+```
+
+### Use Path Type for File Paths
+
+Use `pathlib.Path` for file system paths.
+
+```python
+from pathlib import Path
+from pydantic import Field
+
+class Settings(BaseSettings):
+    # BAD - String paths
+    vector_db_dir: str = "./data/processed/chroma"
+    crawl_storage_dir: str = "./data/raw"
+    
+    # GOOD - Path objects
+    vector_db_dir: Path = Field(
+        default=Path("./data/processed/chroma"), 
+        alias="VECTOR_DB_DIR"
+    )
+    crawl_storage_dir: Path = Field(
+        default=Path("./data/raw"), 
+        alias="CRAWL_STORAGE_DIR"
+    )
+```
+
+**Benefits of Path:**
+- Platform-independent path handling
+- Built-in path operations (exists(), mkdir(), etc.)
+- Type safety
+- Better IDE support
+
+### Create Directories in get_settings()
+
+Ensure required directories exist when settings are loaded.
+
+```python
+from functools import lru_cache
+from pathlib import Path
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return a cached settings instance for reuse across the app."""
+    settings = Settings()
+    
+    # Create required directories
+    settings.vector_db_dir.mkdir(parents=True, exist_ok=True)
+    settings.crawl_storage_dir.mkdir(parents=True, exist_ok=True)
+    
+    return settings
+```
+
+### Use AnyHttpUrl for URL Validation
+
+Validate URLs using Pydantic's URL types.
+
+```python
+from pydantic import AnyHttpUrl, Field
+
+class Settings(BaseSettings):
+    # Validates URL format
+    langchain_endpoint: AnyHttpUrl | None = Field(
+        default=None, 
+        alias="LANGCHAIN_ENDPOINT"
+    )
+    
+    streamlit_backend_url: AnyHttpUrl | None = Field(
+        default=None, 
+        alias="STREAMLIT_BACKEND_URL"
+    )
+```
+
+---
+
+## Environment Variables
+
+### Document All Variables in env.template
+
+Maintain a template file with all environment variables.
+
+```bash
+# config/env.template
+
+# API Keys
+OPENAI_API_KEY=sk-...
+SERPER_API_KEY=...
+LANGCHAIN_API_KEY=...
+
+# LangSmith Configuration (Optional)
+LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+LANGCHAIN_PROJECT=vira-prototype
+
+# Model Configuration
+EMBEDDING_MODEL=text-embedding-3-small
+
+# Database Paths
+VECTOR_DB_DIR=./data/processed/chroma
+
+# API Configuration
+API_HOST=0.0.0.0
+API_PORT=8000
+
+# Iteration 2: Reflection Agent
+ENABLE_REFLECTION=false
+REFLECTION_CONFIDENCE_THRESHOLD=0.7
+MAX_RESEARCH_QUERIES=5
+MAX_REFLECTION_ITERATIONS=2
+
+# Crawl Configuration
+CRAWL_MAX_PAGES=400
+CRAWL_DOWNLOAD_DELAY=1.0
+CRAWL_CONCURRENT_REQUESTS=2
+```
+
+### Use Uppercase with Underscores
+
+Environment variable names must be UPPER_SNAKE_CASE.
+
+```bash
+# GOOD
+OPENAI_API_KEY=sk-...
+ENABLE_REFLECTION=true
+MAX_RESEARCH_QUERIES=5
+
+# BAD
+openai_api_key=sk-...
+enableReflection=true
+maxResearchQueries=5
+```
+
+### Group Related Settings
+
+Organize settings with common prefixes.
+
+```python
+class Settings(BaseSettings):
+    # Crawl settings group
+    crawl_max_pages: int = Field(default=400, alias="CRAWL_MAX_PAGES")
+    crawl_download_delay: float = Field(default=1.0, alias="CRAWL_DOWNLOAD_DELAY")
+    crawl_concurrent_requests: int = Field(default=2, alias="CRAWL_CONCURRENT_REQUESTS")
+    crawl_storage_dir: Path = Field(default=Path("./data/raw"), alias="CRAWL_STORAGE_DIR")
+    
+    # Reflection settings group (Iteration 2)
+    enable_reflection: bool = Field(default=False, alias="ENABLE_REFLECTION")
+    reflection_confidence_threshold: float = Field(default=0.7, alias="REFLECTION_CONFIDENCE_THRESHOLD")
+    max_reflection_iterations: int = Field(default=2, alias="MAX_REFLECTION_ITERATIONS")
+    
+    # API settings group
+    api_host: str = Field(default="0.0.0.0", alias="API_HOST")
+    api_port: int = Field(default=8000, alias="API_PORT")
+```
+
+### Never Commit .env File
+
+Ensure `.env` is in `.gitignore`.
+
+```gitignore
+# .gitignore
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Keep template
+!config/env.template
+```
+
+---
+
+## Settings Access
+
+### Use get_settings() Singleton
+
+Never instantiate `Settings` directly. Use the cached singleton.
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return a cached settings instance for reuse across the app."""
+    settings = Settings()
+    # ... initialization ...
+    return settings
+
+# GOOD - Use singleton
+settings = get_settings()
+
+# BAD - Direct instantiation
+settings = Settings()  # Creates new instance every time
+```
+
+**Why singleton?**
+- Avoids re-reading environment variables
+- Ensures consistent configuration
+- Better performance
+- Single source of truth
+
+### Import at Function Level for Circular Dependencies
+
+Avoid circular imports by importing settings inside functions.
+
+```python
+# BAD - Module-level import can cause circular dependency
+from ..config.settings import get_settings
+settings = get_settings()
+
+def my_function():
+    use_settings(settings)
+
+# GOOD - Function-level import
+def my_function():
+    from ..config.settings import get_settings
+    settings = get_settings()
+    use_settings(settings)
+```
+
+### Cache Settings with @lru_cache
+
+Use `@lru_cache` to cache the settings instance.
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return a cached settings instance."""
+    return Settings()
+
+# First call - creates instance
+settings1 = get_settings()
+
+# Second call - returns cached instance
+settings2 = get_settings()
+
+assert settings1 is settings2  # Same object
+```
+
+---
+
+## Feature Flags
+
+### Use Boolean Fields for Feature Flags
+
+Control iteration features with boolean flags.
+
+```python
+class Settings(BaseSettings):
+    # Iteration 2 feature flag
+    enable_reflection: bool = Field(default=False, alias="ENABLE_REFLECTION")
+    
+    # Future: Iteration 3 feature flag
+    enable_multi_agent: bool = Field(default=False, alias="ENABLE_MULTI_AGENT")
+```
+
+### Check Feature Flags Before Using Features
+
+Always check flags before using iteration-specific features.
+
+```python
+from ..config.settings import get_settings
+
+async def analyze(request: AnalysisRequest):
+    settings = get_settings()
+    
+    if settings.enable_reflection:
+        # Iteration 2: Use reflection agent
+        result = await reflection_agent.analyze(request)
+    else:
+        # Iteration 1: Use basic RAG
+        result = await basic_analyzer.analyze(request)
+    
+    return result
+```
+
+### Document Feature Flag Dependencies
+
+Add comments explaining what each flag controls.
+
+```python
+class Settings(BaseSettings):
+    # Iteration 2: Enable reflection agent with self-critique and research
+    # Requires: SERPER_API_KEY for web search
+    # Default: False (use Iteration 1 basic RAG)
+    enable_reflection: bool = Field(default=False, alias="ENABLE_REFLECTION")
+    
+    # Iteration 2: Confidence threshold for triggering research
+    # Range: 0.0-1.0, lower = more research
+    # Default: 0.7 (research if confidence < 70%)
+    reflection_confidence_threshold: float = Field(
+        default=0.7, 
+        alias="REFLECTION_CONFIDENCE_THRESHOLD"
+    )
+```
+
+---
+
+## Configuration Validation
+
+### Add Validators for Complex Rules
+
+Use Pydantic validators for custom validation logic.
+
+```python
+from pydantic import Field, field_validator
+
+class Settings(BaseSettings):
+    reflection_confidence_threshold: float = Field(
+        default=0.7,
+        alias="REFLECTION_CONFIDENCE_THRESHOLD"
+    )
+    
+    @field_validator('reflection_confidence_threshold')
+    @classmethod
+    def validate_confidence_threshold(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError('Confidence threshold must be between 0.0 and 1.0')
+        return v
+    
+    max_research_queries: int = Field(default=5, alias="MAX_RESEARCH_QUERIES")
+    
+    @field_validator('max_research_queries')
+    @classmethod
+    def validate_max_queries(cls, v: int) -> int:
+        if v < 1 or v > 10:
+            raise ValueError('Max research queries must be between 1 and 10')
+        return v
+```
+
+### Context-Aware Validation
+
+Don't validate everything on import - validate based on context:
+
+```python
+from functools import lru_cache
+import os
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return cached settings without strict validation."""
+    settings = Settings()
+    
+    # Only create directories (lightweight)
+    settings.vector_db_dir.mkdir(parents=True, exist_ok=True)
+    settings.crawl_storage_dir.mkdir(parents=True, exist_ok=True)
+    
+    return settings
+
+
+def validate_production_settings():
+    """Validate settings for production use."""
+    settings = get_settings()
+    
+    # Required API keys
+    if not settings.openai_api_key:
+        raise ValueError("OPENAI_API_KEY is required in production")
+    
+    # Conditional requirements
+    if settings.enable_reflection and not settings.serper_api_key:
+        raise ValueError("SERPER_API_KEY required when ENABLE_REFLECTION=true")
+    
+    logger.info("Production settings validated successfully")
+
+
+def validate_test_settings():
+    """Validate settings for test environment."""
+    settings = get_settings()
+    # Minimal validation - allow missing API keys for unit tests
+    if not settings.vector_db_dir.exists():
+        raise ValueError("Vector DB directory must exist for tests")
+
+
+# In main.py
+if os.getenv("ENVIRONMENT") == "production":
+    validate_production_settings()
+elif os.getenv("ENVIRONMENT") == "test":
+    validate_test_settings()
+```
+
+**Benefits**:
+- Faster startup in development
+- Tests work without full API key setup
+- Explicit validation for production
+
+---
+
+## Configuration for Different Environments
+
+### Support Multiple .env Files
+
+Load environment-specific configuration.
+
+```python
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=Path(".env"),
+        env_file_encoding="utf-8",
+        extra="ignore"  # Ignore extra env vars
+    )
+```
+
+### Use Environment-Specific Defaults
+
+Adjust defaults based on environment.
+
+```python
+import os
+
+def get_environment() -> str:
+    return os.getenv("ENVIRONMENT", "development")
+
+class Settings(BaseSettings):
+    environment: str = Field(default="development", alias="ENVIRONMENT")
+    
+    # Different defaults based on environment
+    @property
+    def api_host(self) -> str:
+        return "0.0.0.0" if self.environment == "production" else "localhost"
+    
+    @property
+    def log_level(self) -> str:
+        return "INFO" if self.environment == "production" else "DEBUG"
+```
+
+---
+
+## Summary
+
+Configuration management in VIRA follows these principles:
+1. **Pydantic Settings** for type-safe configuration
+2. **Environment variables** with UPPER_SNAKE_CASE naming
+3. **Sensible defaults** for all settings
+4. **get_settings() singleton** for consistent access
+5. **Feature flags** for iteration-based development
+6. **Path types** for file system paths
+7. **Validation** for complex rules
+8. **Documentation** in env.template
+
+These patterns ensure maintainable, type-safe, and flexible configuration management.
