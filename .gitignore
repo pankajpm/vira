@@ -23,6 +23,7 @@ env/
 .env.*
 !.env.template
 !config/env.template
+.specstory/
 
 # Python tooling caches
 .pytest_cache/
