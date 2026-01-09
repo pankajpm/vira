@@ -81,7 +81,6 @@ def test_reflection_node_handles_missing_fields():
     output_state = reflection_node(input_state)
     
     # Assert
-    assert "error" in output_state
     assert output_state["error"] is not None
     assert "missing" in output_state["error"].lower()
 ```
