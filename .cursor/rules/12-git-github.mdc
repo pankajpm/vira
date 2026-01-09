@@ -1,0 +1,973 @@
+# Git & GitHub Workflow Rules
+
+**Version**: 2.1  
+**Last Updated**: January 8, 2026  
+**Scope**: Git commits, branches, pull requests, code review, issue tracking
+
+---
+
+## Cross-LLM Compatibility
+
+### Conventions Used
+- Conventional Commits specification v1.0.0
+- GitHub Flow branching strategy
+- Semantic Versioning for releases
+
+### LLM-Specific Guidance
+When creating commits or PRs, follow the formats exactly as specified. These conventions are widely adopted and help maintain clean git history.
+
+### Verification Prompt for AI
+"Confirm you're using Conventional Commits format for commit messages and including appropriate phase context in PR descriptions."
+
+---
+
+## [CRITICAL] Commit Message Format
+
+### Use Conventional Commits
+
+All commit messages must follow the Conventional Commits specification.
+
+**Format:**
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+**Rules:**
+- Subject line: Max 72 characters
+- Use imperative mood ("Add feature" not "Added feature")
+- No period at end of subject
+- Body: Wrap at 72 characters, explain what and why
+- Footer: Reference issues, breaking changes
+
+**Types:**
+```
+feat      - New feature
+fix       - Bug fix
+refactor  - Code restructuring without behavior change
+docs      - Documentation only
+test      - Adding or updating tests
+chore     - Build, config, dependencies
+perf      - Performance improvement
+style     - Code style/formatting (not CSS)
+ci        - CI/CD changes
+revert    - Revert previous commit
+```
+
+**Scopes (optional but recommended):**
+```
+iter-1, iter-2, iter-3  - Iteration-specific
+agents                   - Agent-related code
+rag                      - RAG pipeline
+ui                       - Frontend UI
+api                      - Backend API
+config                   - Configuration
+db                       - Database
+docs                     - Documentation
+```
+
+### Commit Message Examples
+
+```bash
+# GOOD - Feature with scope
+feat(iter-2): Add reflection agent with confidence scoring
+
+Implements the reflection agent that:
+- Analyzes alignment explanations for completeness
+- Assigns confidence scores to each alignment/gap
+- Identifies information gaps requiring research
+
+This is a key component of Iteration 2's self-aware analysis.
+
+Closes #42
+
+# GOOD - Bug fix with detailed explanation
+fix(ui): Resolve WebSocket cleanup memory leak
+
+WebSocket connections were not being properly cleaned up when
+components unmounted, causing memory leaks in long-running sessions.
+
+Changes:
+- Add cleanup function in useEffect return
+- Clear wsRef.current on unmount
+- Add connection state tracking
+
+Fixes #156
+
+# GOOD - Breaking change
+feat(api)!: Change session API to use UUID instead of integer IDs
+
+BREAKING CHANGE: Session IDs are now UUIDs instead of integers.
+Clients must update to handle string IDs.
+
+Migration: Update API client to expect string session IDs.
+
+Closes #89
+
+# BAD - Vague subject
+fix: fixed bug
+
+# BAD - Too detailed in subject
+feat: add new reflection agent that analyzes alignment explanations for completeness and assigns confidence scores
+
+# BAD - Wrong tense
+feat: added reflection agent
+
+# BAD - No context
+update code
+```
+
+### Multi-File Commits
+
+For commits touching multiple areas, use broader scope or no scope:
+
+```bash
+# GOOD - Multiple related changes
+refactor(agents): Split agents.py into separate node files
+
+Splits monolithic agents.py (800 lines) into:
+- state.py: State definitions
+- reflection.py: Reflection agent
+- research.py: Research agent  
+- graph.py: Graph orchestration
+
+Improves maintainability and reduces file size.
+
+# GOOD - Cross-cutting change
+chore: Upgrade LangChain to v0.3.0
+
+Updates all LangChain imports and API usage across:
+- agents/
+- rag/
+- retrieval/
+
+No behavior changes.
+```
+
+---
+
+## [IMPORTANT] Branch Naming
+
+### Use Descriptive Branch Names
+
+Branch names should indicate the type of work and be hyphen-separated.
+
+**Format:**
+```
+<type>/<brief-description>
+<type>/<issue-number>-<brief-description>
+```
+
+**Types:**
+```
+feature/    - New features
+fix/        - Bug fixes
+refactor/   - Code refactoring
+docs/       - Documentation
+test/       - Test additions
+chore/      - Maintenance tasks
+hotfix/     - Urgent production fixes
+prototype/  - Prototype/spike work (Phase 0-1)
+```
+
+**Examples:**
+```bash
+# GOOD
+feature/reflection-agent
+feature/156-websocket-cleanup
+fix/memory-leak-in-sessions
+refactor/split-agents-file
+docs/add-iteration-2-guide
+prototype/multi-agent-committee
+hotfix/critical-api-error
+
+# BAD
+my-branch
+fix
+new-stuff
+temp
+abc123
+```
+
+### Branch Lifecycle
+
+```bash
+# Create feature branch from main
+git checkout main
+git pull origin main
+git checkout -b feature/reflection-agent
+
+# Work on feature
+git add src/vira/agents/reflection.py
+git commit -m "feat(iter-2): Add reflection agent core logic"
+
+# Keep branch updated
+git fetch origin
+git rebase origin/main
+
+# Push to remote
+git push origin feature/reflection-agent
+
+# Create PR (see PR section)
+
+# After merge, delete branch
+git branch -d feature/reflection-agent
+git push origin --delete feature/reflection-agent
+```
+
+---
+
+## [IMPORTANT] Pull Request Guidelines
+
+### PR Title Format
+
+Use the same format as commit messages:
+
+```
+<type>(<scope>): <subject>
+```
+
+**Examples:**
+```
+feat(iter-2): Add reflection agent with confidence scoring
+fix(ui): Resolve WebSocket cleanup memory leak
+docs(iter-2): Add ADR for LangGraph choice
+```
+
+### PR Description Template
+
+Use this template for all PRs:
+
+```markdown
+## Summary
+Brief description of what this PR does (1-3 sentences).
+
+## Changes
+- Bullet list of key changes
+- What was added/modified/removed
+- Important implementation details
+
+## Test Plan
+- [ ] Unit tests added/updated
+- [ ] Integration tests pass
+- [ ] Manual testing performed
+- [ ] Specific scenarios tested
+
+## Phase Checklist
+
+### Phase 1 → Phase 2 (Prototype to Alpha)
+- [ ] Product owner approved approach
+- [ ] Unit tests added for critical paths
+- [ ] Integration test for workflow
+- [ ] Module docstrings added
+- [ ] TODOs have issue references
+- [ ] All CRITICAL rules followed
+- [ ] All IMPORTANT rules followed
+- [ ] Architecture documented (if new patterns)
+
+### Phase 2 → Phase 3 (Alpha to Production)
+- [ ] Beta testing completed
+- [ ] Test coverage >80% on critical paths
+- [ ] Complete documentation
+- [ ] Performance benchmarks met
+- [ ] Security review completed
+- [ ] Monitoring configured
+- [ ] Runbooks created
+
+(Check only the relevant phase section)
+
+## Related Issues
+Closes #123
+Relates to #456
+
+## Screenshots (if UI changes)
+[Add screenshots here]
+
+## Breaking Changes
+[Describe any breaking changes or write "None"]
+
+## Migration Guide (if needed)
+[Steps for users to migrate or write "Not applicable"]
+
+## Reviewer Notes
+[Any specific areas you want reviewers to focus on]
+```
+
+### PR Description Examples
+
+```markdown
+# GOOD - Feature PR
+## Summary
+Implements the reflection agent that assesses confidence in alignment 
+analyses and identifies information gaps requiring research. This is a 
+core component of Iteration 2's self-aware analysis capability.
+
+## Changes
+- Add `ReflectionAgent` class in `src/vira/agents/reflection.py`
+- Extend `AgentState` with reflection fields in `state.py`
+- Add reflection node to graph in `graph.py`
+- Add unit tests for reflection logic
+- Update API to return confidence scores
+- Add ADR-005 documenting reflection approach
+
+## Test Plan
+- [x] Unit tests for `ReflectionAgent.analyze()`
+- [x] Integration test for reflection→research flow
+- [x] Manual testing with 5 sample business plans
+- [x] Tested confidence thresholds (0.5, 0.7, 0.9)
+- [x] Verified research triggers on low confidence
+
+## Phase Checklist
+### Phase 1 → Phase 2 (Prototype to Alpha)
+- [x] Product owner approved approach
+- [x] Unit tests added for critical paths
+- [x] Integration test for workflow
+- [x] Module docstrings added
+- [x] TODOs have issue references (#42, #43)
+- [x] All CRITICAL rules followed
+- [x] All IMPORTANT rules followed
+- [x] Architecture documented (ADR-005)
+
+## Related Issues
+Closes #42
+Relates to #38 (research agent integration)
+
+## Breaking Changes
+None
+
+## Reviewer Notes
+Please pay special attention to the confidence scoring logic in 
+`_calculate_confidence()` - I want to make sure the thresholds are 
+reasonable.
+```
+
+---
+
+## [IMPORTANT] Code Review Process
+
+### Review Checklist by Phase
+
+#### Phase 1 (Prototype) Review
+
+**Focus:** Does it work? Are CRITICAL rules followed?
+
+```markdown
+## Functionality
+- [ ] Feature works as described
+- [ ] No obvious bugs or crashes
+- [ ] Core use cases covered
+
+## CRITICAL Rules
+- [ ] Type safety (str | None, TypedDict)
+- [ ] Error handling (state["error"] in nodes)
+- [ ] WebSocket cleanup (useEffect returns)
+- [ ] Structured logging (no print statements)
+- [ ] Feature flags used appropriately
+- [ ] Security basics (env vars, input validation)
+
+## Architecture
+- [ ] Approach is sound
+- [ ] No major technical debt introduced
+- [ ] Fits with existing patterns
+```
+
+#### Phase 2 (Alpha) Review
+
+**Focus:** Phase 1 checks + tests, docs, maintainability
+
+```markdown
+## Phase 1 Checks
+- [ ] All Phase 1 review items pass
+
+## Testing
+- [ ] Unit tests present and meaningful
+- [ ] Integration tests for workflows
+- [ ] Tests actually test the logic
+- [ ] Test coverage on critical paths
+
+## Documentation
+- [ ] Module docstrings added
+- [ ] Function docstrings for complex logic
+- [ ] TODOs have issue references
+- [ ] Iteration markers present
+
+## IMPORTANT Rules
+- [ ] Async patterns correct
+- [ ] LangGraph best practices followed
+- [ ] React patterns correct
+- [ ] Error recovery implemented
+- [ ] Code organization reasonable
+
+## Maintainability
+- [ ] Another developer could maintain this
+- [ ] No overly complex logic
+- [ ] Appropriate abstractions
+```
+
+#### Phase 3 (Production) Review
+
+**Focus:** Phase 2 checks + performance, completeness, edge cases
+
+```markdown
+## Phase 2 Checks
+- [ ] All Phase 2 review items pass
+
+## Completeness
+- [ ] All edge cases handled
+- [ ] Performance acceptable
+- [ ] Complete error handling
+- [ ] Monitoring in place
+
+## GUIDANCE Rules
+- [ ] No commented code
+- [ ] Imports organized
+- [ ] Code style consistent
+- [ ] File organization optimal
+
+## Production Readiness
+- [ ] Security reviewed
+- [ ] Performance benchmarked
+- [ ] Rollback plan exists
+- [ ] Runbooks updated
+- [ ] No technical debt concerns
+```
+
+### Review Comments Best Practices
+
+**Use clear prefixes:**
+
+```markdown
+# Blocking issues (must fix)
+[BLOCKING] This will cause a memory leak - WebSocket not cleaned up
+
+# Important improvements (should fix)
+[IMPORTANT] Consider extracting this to a helper function for reusability
+
+# Suggestions (nice to have)
+[SUGGESTION] You could use a discriminated union here for better type safety
+
+# Questions
+[QUESTION] Why did you choose BM25 over TF-IDF here?
+
+# Praise
+[NICE] Great use of the state pattern here!
+```
+
+**Be specific:**
+
+```python
+# BAD review comment
+"This code is bad"
+
+# GOOD review comment
+"[BLOCKING] Line 42: This will fail if state['docs'] is None. Add null check:
+if 'docs' not in state or not state['docs']:
+    return state"
+```
+
+---
+
+## [CRITICAL] Pre-Commit Checklist
+
+### Before Every Commit
+
+Run these commands:
+
+```bash
+# 1. Format code
+black src/ tests/
+isort src/ tests/
+
+# 2. Check linting
+ruff check --fix src/ tests/
+
+# 3. Type check (optional but recommended)
+mypy src/
+
+# 4. Review changes
+git diff
+
+# 5. Check for violations
+rg "print\(" --type py           # Should find none
+rg "TODO(?!\(#\d+\))" --type py  # Should find none in non-prototype
+rg "Optional\[" --type py        # Should find none
+
+# 6. Commit
+git commit -m "feat(scope): description"
+```
+
+### Automated Pre-Commit Hooks
+
+**Recommended setup:**
+
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install hooks
+pre-commit install
+
+# Run manually
+pre-commit run --all-files
+```
+
+**Configuration** (add to `.pre-commit-config.yaml`):
+
+```yaml
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        language_version: python3.10
+
+  - repo: https://github.com/pep8-naming/pep8-naming
+    rev: v0.14.1
+    hooks:
+      - id: pep8-naming
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+
+  - repo: local
+    hooks:
+      - id: no-print-statements
+        name: Check for print statements
+        entry: 'print\('
+        language: pygrep
+        types: [python]
+        exclude: ^tests/
+```
+
+---
+
+## [IMPORTANT] Issue Tracking Integration
+
+### Link Commits to Issues
+
+Always reference issues in commits when applicable:
+
+```bash
+# Closes issue
+git commit -m "feat(iter-2): Add reflection agent
+
+Closes #42"
+
+# Relates to issue but doesn't close
+git commit -m "refactor(agents): Extract confidence scoring
+
+Part of #42"
+
+# Fixes bug
+git commit -m "fix(ui): Resolve WebSocket cleanup memory leak
+
+Fixes #156"
+```
+
+### TODO Format with Issues
+
+**Phase 1 (Prototype):**
+```python
+# Informal TODOs acceptable
+# TODO: Add retry logic here
+# TODO: Consider caching this query
+```
+
+**Phase 2+ (Alpha/Production):**
+```python
+# Must have issue references
+# TODO(#123): Add retry logic for API calls
+# TODO(#124): Implement caching for vector store queries
+```
+
+**Create issues before converting Phase 1→2:**
+
+```bash
+# Find TODOs without issue references
+rg "TODO(?!\(#\d+\))" --type py --type ts
+
+# For each TODO, create GitHub issue and update:
+# TODO: Add retry logic
+# becomes:
+# TODO(#123): Add retry logic
+```
+
+### Issue Labels
+
+Use consistent labels:
+
+```
+Type:
+- type/bug          - Bug fix needed
+- type/feature      - New feature
+- type/refactor     - Code refactoring
+- type/docs         - Documentation
+- type/test         - Testing
+
+Priority:
+- priority/critical - Blocks release
+- priority/high     - Important but not blocking
+- priority/medium   - Nice to have
+- priority/low      - Future consideration
+
+Iteration:
+- iteration-1       - Belongs to Iteration 1
+- iteration-2       - Belongs to Iteration 2
+- iteration-3       - Belongs to Iteration 3
+
+Phase:
+- phase/prototype   - Prototype work
+- phase/alpha       - Alpha quality needed
+- phase/production  - Production ready
+
+Component:
+- component/agents  - Agent-related
+- component/rag     - RAG pipeline
+- component/ui      - Frontend UI
+- component/api     - Backend API
+```
+
+---
+
+## [IMPORTANT] Git Tagging for Iterations
+
+### Tag Iteration Milestones
+
+Tag releases when iterations are complete:
+
+```bash
+# Iteration 1 complete
+git tag -a v1.0-iteration1 -m "Iteration 1: Basic RAG pipeline"
+git push origin v1.0-iteration1
+
+# Iteration 2 complete
+git tag -a v2.0-iteration2 -m "Iteration 2: Reflection + Research"
+git push origin v2.0-iteration2
+
+# Minor version for hotfixes
+git tag -a v2.1-iteration2 -m "Iteration 2: Hotfix for WebSocket leak"
+git push origin v2.1-iteration2
+```
+
+### Version Numbering
+
+Use semantic versioning with iteration context:
+
+```
+v<major>.<minor>-iteration<N>
+
+v1.0-iteration1  - Iteration 1 initial release
+v1.1-iteration1  - Iteration 1 minor update
+v2.0-iteration2  - Iteration 2 initial release
+v2.1-iteration2  - Iteration 2 minor update
+v3.0-iteration3  - Iteration 3 initial release
+```
+
+### View Tagged Releases
+
+```bash
+# List all tags
+git tag -l
+
+# Show tag details
+git show v2.0-iteration2
+
+# Checkout specific version
+git checkout v2.0-iteration2
+
+# Compare iterations
+git diff v1.0-iteration1..v2.0-iteration2
+```
+
+---
+
+## [GUIDANCE] Git Workflow Best Practices
+
+### Keep Commits Atomic
+
+Each commit should be a single logical change:
+
+```bash
+# GOOD - Atomic commits
+git commit -m "feat(iter-2): Add ReflectionAgent class"
+git commit -m "feat(iter-2): Add reflection node to graph"
+git commit -m "test(iter-2): Add unit tests for reflection"
+
+# BAD - One giant commit
+git commit -m "feat(iter-2): Add complete reflection feature"
+# (includes agent, graph, tests, docs, refactors)
+```
+
+### Use Interactive Rebase to Clean History
+
+Before creating PR, clean up commit history:
+
+```bash
+# Rebase last 5 commits
+git rebase -i HEAD~5
+
+# In editor:
+pick abc123 feat(iter-2): Add ReflectionAgent class
+fixup def456 fix typo
+fixup ghi789 fix import
+pick jkl012 test(iter-2): Add unit tests
+reword mno345 docs(iter-2): Add reflection docs
+
+# Result: Clean, logical history
+```
+
+### Write Useful Commit Messages
+
+```bash
+# BAD
+git commit -m "fix"
+git commit -m "update"
+git commit -m "wip"
+
+# GOOD
+git commit -m "fix(agents): Prevent null pointer in confidence calculation"
+git commit -m "refactor(ui): Extract WebSocket logic to custom hook"
+git commit -m "test(iter-2): Add integration test for reflection flow"
+```
+
+### Don't Commit Generated/Temporary Files
+
+**Always in .gitignore:**
+```gitignore
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment
+.env
+.env.local
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary
+scratch.ipynb
+temp_*.py
+debug_*.txt
+test_script.py
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+```
+
+---
+
+## [GUIDANCE] GitHub PR Review Process
+
+### PR Lifecycle
+
+```
+1. Developer creates PR
+   ↓
+2. Automated checks run (CI/CD)
+   ↓
+3. Assign reviewers (1-2 people)
+   ↓
+4. Reviewers add comments
+   ↓
+5. Developer addresses feedback
+   ↓
+6. Reviewers approve
+   ↓
+7. Merge to main
+   ↓
+8. Delete feature branch
+```
+
+### PR Size Guidelines
+
+**Keep PRs small and focused:**
+
+```
+Ideal:     < 200 lines changed
+Good:      200-400 lines changed
+Large:     400-800 lines changed
+Too Large: > 800 lines changed (split it up)
+```
+
+**If PR is large, explain why:**
+
+```markdown
+## PR Size Note
+This PR is large (1200 lines) because it includes:
+- New reflection agent (400 lines)
+- Complete test suite (300 lines)
+- Integration with existing graph (200 lines)
+- Documentation and examples (300 lines)
+
+All changes are related to the reflection feature and cannot be 
+easily split without breaking functionality.
+```
+
+### Requesting Changes vs Approving
+
+**Request Changes when:**
+- CRITICAL rules violated
+- Code will break production
+- Security vulnerabilities present
+- Major design flaws
+
+**Approve with Comments when:**
+- Minor improvements suggested
+- Style preferences
+- GUIDANCE rules not followed
+- Optional optimizations
+
+**Approve when:**
+- All blocking issues resolved
+- Code meets phase requirements
+- Tests pass
+- Documentation adequate
+
+---
+
+## [GUIDANCE] Git Hygiene
+
+### Keep Main Branch Clean
+
+```bash
+# Always pull before creating new branch
+git checkout main
+git pull origin main
+git checkout -b feature/new-feature
+
+# Never commit directly to main
+# Always use PRs for main branch
+```
+
+### Resolve Conflicts Carefully
+
+```bash
+# When conflicts occur
+git fetch origin
+git rebase origin/main
+
+# Or for feature branches
+git merge origin/main
+
+# Resolve conflicts
+# Test thoroughly after resolving
+# Then continue
+git rebase --continue
+```
+
+### Clean Up Local Branches
+
+```bash
+# List merged branches
+git branch --merged
+
+# Delete merged local branches
+git branch -d feature/old-feature
+
+# Delete remote branches
+git push origin --delete feature/old-feature
+
+# Prune remote branches
+git remote prune origin
+```
+
+---
+
+## Common Commands Reference
+
+```bash
+# Create feature branch
+git checkout -b feature/my-feature
+
+# Stage changes
+git add src/vira/agents/reflection.py
+git add tests/test_reflection.py
+
+# Commit with conventional format
+git commit -m "feat(iter-2): Add reflection agent"
+
+# Push to remote
+git push origin feature/my-feature
+
+# Update from main
+git fetch origin
+git rebase origin/main
+
+# View commit history
+git log --oneline --graph
+
+# View changes
+git diff
+git diff --staged
+
+# Amend last commit
+git commit --amend
+
+# Reset last commit (keep changes)
+git reset --soft HEAD~1
+
+# View blame for file
+git blame src/vira/agents/reflection.py
+
+# Search commits
+git log --grep="reflection"
+git log --author="username"
+
+# Tag release
+git tag -a v2.0-iteration2 -m "Iteration 2 release"
+git push origin v2.0-iteration2
+
+# Create PR (using gh CLI)
+gh pr create --title "feat(iter-2): Add reflection agent" \
+             --body "$(cat pr-description.md)"
+```
+
+---
+
+## Summary
+
+Git and GitHub workflow in VIRA follows these principles:
+
+1. **Conventional Commits** for all commit messages (type, scope, subject)
+2. **Descriptive branch names** with type prefix (feature/, fix/, etc.)
+3. **Comprehensive PR templates** with phase checklists
+4. **Phase-specific code review** criteria (CRITICAL/IMPORTANT/GUIDANCE)
+5. **Pre-commit checks** for code quality (black, ruff, mypy)
+6. **Issue tracking integration** with TODO references
+7. **Git tags** for iteration milestones
+8. **Atomic commits** with clear, logical changes
+9. **Clean PR history** using interactive rebase
+10. **Small, focused PRs** (< 400 lines when possible)
+
+These patterns ensure maintainable git history, effective code review, and clear project evolution tracking.
