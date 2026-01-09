@@ -13,7 +13,11 @@ This project uses a modular cursor rules system. All detailed rules are organize
 
 ## Rule Priority System
 
-### Tier 1: Critical (Always Enforce)
+**For AI/LLM**: Prioritize [CRITICAL] rules, enforce [IMPORTANT] rules, suggest [GUIDANCE] rules.
+
+### Tier 1: CRITICAL (Always Enforce)
+These rules prevent bugs, security issues, or system failures. Never skip these.
+
 1. **Type Safety**: Use `str | None` not `Optional[str]` (Python 3.10+)
 2. **Error Handling**: Never raise in LangGraph nodes - set `state["error"]`
 3. **State Management**: Use TypedDict for AgentState with graceful degradation
@@ -22,18 +26,38 @@ This project uses a modular cursor rules system. All detailed rules are organize
 6. **Security**: Validate inputs, use env vars for secrets, parameterized queries
 7. **Async Patterns**: Use async/await for all I/O operations
 8. **Import Organization**: Run isort before committing (automated)
+9. **Structured Logging**: Use logger with semantic tags (phase, status), never use print statements
+10. **No Type 'any'**: Use `unknown` with type guards in TypeScript
+11. **Commit Messages**: Use Conventional Commits format (type, scope, subject)
+12. **Pre-Commit Cleanup**: Remove debug prints, commented code, organize imports
 
-### Tier 2: Important (Domain-Specific)
+### Tier 2: IMPORTANT (Domain-Specific Enforcement)
+These rules improve code quality and maintainability. Enforce during code review.
+
 See individual `.cursor/rules/*.mdc` files for:
 - LangGraph patterns (02-langgraph-agents.mdc)
 - React hooks patterns (03-typescript-react.mdc)
 - Real-time UI patterns (04-realtime-ui.mdc)
 - Configuration management (05-configuration.mdc)
+- Documentation standards (07-documentation.mdc)
+- Testing patterns (11-testing-patterns.mdc)
+- PR templates and code review (12-git-github.mdc)
 
-### Tier 3: Guidance (Style & Convention)
+### Tier 3: GUIDANCE (Style & Convention)
+These rules improve consistency. Apply when convenient, don't block progress.
+
 - File organization preferences
 - Naming conventions
 - Code style (enforced by black/ruff/isort)
+- Comment style preferences
+
+---
+
+## Quick Start
+
+**New to project?** Read `.cursor/QUICKSTART.md` first (2-page guide)
+
+**Need specific guidance?** Use the decision tree in QUICKSTART.md to find relevant rules
 
 ---
 
@@ -151,6 +175,18 @@ See individual `.cursor/rules/*.mdc` files for:
 - Follow PEP 8 and use ruff/black
 - Extract magic numbers to constants
 
+### 12-git-github.mdc
+**Scope**: Git commits, branches, pull requests, code review, issue tracking  
+**Topics**: Commit messages, branch naming, PR templates, code review, git workflow
+
+**Key Patterns**:
+- Conventional Commits: `feat(scope): subject`
+- Branch naming: `feature/description` or `fix/issue-number-description`
+- PR templates with phase checklists
+- Pre-commit checks (black, ruff, isort)
+- Issue tracking integration
+- Git tags for iteration milestones
+
 ### 10-prompt-engineering.mdc
 **Scope**: Prompt management, LLM patterns, prompt testing  
 **Topics**: Prompt management, prompt structure, optimization, testing, iteration
@@ -181,13 +217,13 @@ async def fetch_data() -> dict:
 
 # LangGraph node
 def my_node(state: AgentState) -> AgentState:
-    print("🔍 Running operation...")
+    logger.info("Operation started", extra={"phase": "processing", "status": "started"})
     try:
         result = perform_operation(state)
         state["result"] = result
-        print("   ✓ Operation complete")
+        logger.info("Operation complete", extra={"phase": "processing", "status": "completed"})
     except Exception as e:
-        print(f"   ⚠️  Error: {e}")
+        logger.error("Operation failed", extra={"phase": "processing", "status": "failed", "error": str(e)})
         state["error"] = str(e)
     return state
 ```
@@ -243,14 +279,15 @@ else:
 # Iteration 3: Multi-agent committee (planned)
 ```
 
-### Emoji Progress Indicators
+### Structured Logging Pattern
 ```python
-print("🔍 Running analysis...")      # Analysis/search
-print("🔬 Running research...")      # Research
-print("🤔 Running reflection...")    # Reflection
-print("   ✓ Operation complete")    # Success
-print("   ⚠️  Warning detected")    # Warning
-print("   ❌ Operation failed")     # Error
+import logging
+logger = logging.getLogger(__name__)
+
+logger.info("Analysis started", extra={"phase": "analysis", "status": "started"})
+logger.info("Analysis complete", extra={"phase": "analysis", "status": "completed"})
+logger.warning("Warning detected", extra={"phase": "analysis", "status": "warning"})
+logger.error("Operation failed", extra={"phase": "analysis", "status": "failed", "error": str(e)})
 ```
 
 ### File Organization
@@ -313,6 +350,8 @@ npm test
 - **Iterations**: See `.cursor/rules/08-iteration-dev.mdc`
 - **Code quality**: See `.cursor/rules/09-code-quality.mdc`
 - **Prompts**: See `.cursor/rules/10-prompt-engineering.mdc`
+- **Testing**: See `.cursor/rules/11-testing-patterns.mdc`
+- **Git/GitHub**: See `.cursor/rules/12-git-github.mdc`
 
 ---
 

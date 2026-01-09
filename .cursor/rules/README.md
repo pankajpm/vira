@@ -28,6 +28,8 @@ This directory contains the modular cursor rules system for VIRA. Each file cove
 | `08-iteration-dev.mdc` | 540 lines | Iteration model | Feature flags, backward compatibility, migration |
 | `09-code-quality.mdc` | 578 lines | Code cleanup | TODOs, imports, refactoring, style |
 | `10-prompt-engineering.mdc` | 559 lines | Prompts, LLMs | Prompt management, testing, optimization |
+| `11-testing-patterns.mdc` | 583 lines | Testing | Unit tests, integration tests, mocking, test patterns |
+| `12-git-github.mdc` | 850 lines | Git, GitHub | Commits, PRs, code review, branching, issue tracking |
 
 ---
 
@@ -115,14 +117,14 @@ Description of pattern or rule.
 def process(data: dict[str, Any]) -> list[str] | None:
     pass
 
-# LangGraph node
+# LangGraph node with structured logging
 def my_node(state: AgentState) -> AgentState:
-    print("🔍 Running operation...")
+    logger.info("Operation started", extra={"phase": "processing", "status": "started"})
     try:
         state["result"] = perform_operation(state)
-        print("   ✓ Complete")
+        logger.info("Operation completed", extra={"phase": "processing", "status": "completed"})
     except Exception as e:
-        print(f"   ⚠️  Error: {e}")
+        logger.error("Operation failed", extra={"phase": "processing", "status": "failed", "error": str(e)})
         state["error"] = str(e)
     return state
 ```
@@ -157,20 +159,23 @@ if settings.enable_reflection:
 
 ---
 
-## Emoji Conventions
+## Structured Logging Standards
 
-| Emoji | Meaning | Usage |
-|-------|---------|-------|
-| 🔍 | Analysis/Search | `print("🔍 Running analysis...")` |
-| 🔬 | Research | `print("🔬 Running research...")` |
-| 🤔 | Reflection | `print("🤔 Running reflection...")` |
-| ♻️ | Regeneration | `print("♻️  Regenerating...")` |
-| ✓ | Success | `print("   ✓ Complete")` |
-| ⚠️ | Warning | `print("   ⚠️  Warning")` |
-| ❌ | Error | `print("   ❌ Failed")` |
-| 📊 | Metrics | `print("   📊 Confidence: 0.85")` |
-| 📋 | Lists | `print("   📋 Found 3 gaps")` |
-| 📚 | Data | `print("   📚 Retrieved 10 docs")` |
+| Phase Tag | Meaning | Usage |
+|-----------|---------|-------|
+| `analysis` | Analysis/Search | `logger.info("Analysis started", extra={"phase": "analysis"})` |
+| `research` | Research | `logger.info("Research started", extra={"phase": "research"})` |
+| `reflection` | Reflection | `logger.info("Reflection started", extra={"phase": "reflection"})` |
+| `regeneration` | Regeneration | `logger.info("Regenerating", extra={"phase": "regeneration"})` |
+| `routing` | Routing | `logger.info("Routing decision", extra={"phase": "routing"})` |
+| `processing` | Processing | `logger.info("Processing data", extra={"phase": "processing"})` |
+
+| Status Value | Meaning | Usage |
+|--------------|---------|-------|
+| `started` | Operation begun | `extra={"status": "started"}` |
+| `completed` | Operation successful | `extra={"status": "completed"}` |
+| `failed` | Operation failed | `extra={"status": "failed"}` |
+| `warning` | Warning condition | `extra={"status": "warning"}` |
 
 ---
 
