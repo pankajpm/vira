@@ -15,7 +15,6 @@ repos:
     rev: v1.11.1
     hooks:
       - id: mypy
-        additional_dependencies: [types-all]
         args: [--ignore-missing-imports]
 
   - repo: local
