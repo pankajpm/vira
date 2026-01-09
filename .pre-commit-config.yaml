@@ -21,7 +21,7 @@ repos:
     hooks:
       - id: no-print-statements
         name: Check for print statements
-        entry: 'print\('
+        entry: '\bprint\('
         language: pygrep
         types: [python]
         exclude: ^tests/
