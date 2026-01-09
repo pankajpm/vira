@@ -495,19 +495,20 @@ interface AnalysisProgress {
 }
 
 const AnalysisProgressBar: React.FC<{ progress: AnalysisProgress }> = ({ progress }) => {
-  const getStatusIcon = () => {
+  const getStatusText = () => {
     switch (progress.status) {
-      case 'retrieving': return '🔍';
-      case 'analyzing': return '🤔';
-      case 'complete': return '✓';
-      case 'error': return '❌';
+      case 'retrieving': return 'Retrieving';
+      case 'analyzing': return 'Analyzing';
+      case 'complete': return 'Complete';
+      case 'error': return 'Error';
+      default: return 'Processing';
     }
   };
   
   return (
     <div className="progress-container">
       <div className="progress-status">
-        <span className="icon">{getStatusIcon()}</span>
+        <span className="status-text">{getStatusText()}</span>
         <span className="message">{progress.message}</span>
       </div>
       

@@ -81,11 +81,18 @@ async def analyze_business_plan(request: AnalysisRequest) -> AlignmentResponse:
     
     if settings.enable_reflection:
         # Iteration 2: Use reflection agent
-        print("🔄 Using Iteration 2 (Reflection + Research)")
+        logger.info("Using Iteration 2 analyzer", extra={
+            "iteration": "2",
+            "analyzer": "reflection",
+            "features": ["reflection", "research"]
+        })
         return await reflection_agent.analyze(request)
     else:
         # Iteration 1: Use basic RAG
-        print("📊 Using Iteration 1 (Basic RAG)")
+        logger.info("Using Iteration 1 analyzer", extra={
+            "iteration": "1",
+            "analyzer": "basic_rag"
+        })
         return await basic_analyzer.analyze(request)
 ```
 

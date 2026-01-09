@@ -6,7 +6,7 @@
 
 ---
 
-## 1. Information Verification
+## [IMPORTANT] 1. Information Verification
 
 Always verify information before presenting it. Do not make assumptions or speculate without clear evidence.
 
@@ -199,7 +199,7 @@ for item in list1:
 
 ---
 
-## 17. Security-First Approach
+## [CRITICAL] 17. Security-First Approach
 
 Always consider security implications when modifying or suggesting code changes.
 

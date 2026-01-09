@@ -645,6 +645,42 @@ components/
 
 ---
 
+## Cross-LLM Compatibility
+
+### Version Requirements
+- **React**: 19.x (these patterns use React 19 features)
+- **TypeScript**: 4.9+
+- **Node**: 18+ LTS
+
+### React 19 Features
+Some LLMs may not have React 19 in training data. Key React 19 features used:
+- **use() hook** for Promises and Context (preferred over traditional patterns)
+- **Automatic batching** improvements
+- **useTransition** and **useDeferredValue** for concurrent features
+
+If LLM generates React 18 patterns, they still work but may miss optimizations.
+
+### Fallback Patterns
+If uncertain about React 19 API:
+```typescript
+// Safe pattern that works in React 18 and 19
+const [data, setData] = useState<DataType | null>(null);
+
+useEffect(() => {
+  fetchData().then(setData);
+}, []);
+```
+
+### TypeScript Compatibility
+- Prefer type over interface for props (more flexible)
+- Use `unknown` over `any` (enforced by linter)
+- Discriminated unions for complex state (supported all TS versions 4.9+)
+
+### Verification Prompt for AI
+"Confirm you're using React 19 hooks and TypeScript 4.9+ patterns. If uncertain about React 19 API, use traditional useState/useEffect patterns."
+
+---
+
 ## Summary
 
 React/TypeScript development in VIRA follows these principles:

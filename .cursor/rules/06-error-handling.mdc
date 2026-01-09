@@ -1,8 +1,72 @@
 # Error Handling & Observability Rules
 
-**Version**: 2.0  
+**Version**: 2.1  
 **Last Updated**: January 8, 2026  
 **Scope**: Exception handling, logging, monitoring, observability
+
+---
+
+## Structured Logging Requirements
+
+### [CRITICAL] Use Structured Logging for All Operations
+
+All operations must use structured logging with semantic tags. **Never use print statements.**
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+# GOOD - Structured logging with context
+logger.info("Operation started", extra={
+    "phase": "processing",
+    "status": "started",
+    "session_id": session_id
+})
+
+logger.info("Operation completed", extra={
+    "phase": "processing",
+    "status": "completed",
+    "duration_ms": 150,
+    "items_processed": 42
+})
+
+logger.error("Operation failed", extra={
+    "phase": "processing",
+    "status": "failed",
+    "error": str(e),
+    "session_id": session_id
+}, exc_info=True)
+
+# BAD - Print statements
+print("Processing data...")
+print(f"Error: {e}")
+```
+
+### Standard Semantic Tags
+
+**Phase Tags** (operation category):
+- `analysis` - Analysis/search operations
+- `research` - Research operations
+- `reflection` - Reflection/thinking
+- `regeneration` - Regeneration/retry
+- `routing` - Conditional routing
+- `processing` - General processing
+- `api` - API calls
+- `validation` - Input/state validation
+
+**Status Tags** (operation outcome):
+- `started` - Operation has begun
+- `completed` - Operation finished successfully
+- `failed` - Operation encountered an error
+- `warning` - Operation completed with warnings
+
+**Additional Context** (always include when relevant):
+- `session_id` - Session identifier
+- `user_id` - User identifier  
+- `duration_ms` - Operation duration
+- `error` - Error message
+- `trace_id` - Distributed tracing ID
 
 ---
 
@@ -46,18 +110,25 @@ Agent nodes must handle errors gracefully without breaking the graph.
 ```python
 def research_node(state: AgentState) -> AgentState:
     """Conduct research to fill information gaps."""
-    print("🔬 Running research...")
+    logger.info("Research started", extra={"phase": "research", "status": "started"})
     
     try:
         gaps = state.get("information_gaps", [])
         results = conduct_research(gaps)
         
         state["research_results"] = results
-        print(f"   ✓ Research complete: {len(results)} results")
+        logger.info("Research completed", extra={
+            "phase": "research",
+            "status": "completed",
+            "results_count": len(results)
+        })
         
     except Exception as e:
-        logger.error(f"Research failed: {e}", exc_info=True)
-        print(f"   ⚠️  Research error: {e}")
+        logger.error("Research failed", extra={
+            "phase": "research",
+            "status": "failed",
+            "error": str(e)
+        }, exc_info=True)
         
         # Set error in state, don't raise
         state["error"] = f"Research failed: {str(e)}"
@@ -218,7 +289,10 @@ async def call_llm_with_tracking(prompt: str) -> tuple[str, dict]:
             }
         )
         
-        print(f"   📊 Tokens: {cb.total_tokens} (${cb.total_cost:.4f})")
+        logger.info("Token usage", extra={
+            "tokens": cb.total_tokens,
+            "cost": cb.total_cost
+        })
         
         return response.content, usage
 ```
@@ -235,13 +309,20 @@ from contextlib import contextmanager
 def track_timing(operation_name: str):
     """Context manager to track operation timing."""
     start_time = time.time()
-    print(f"⏱️  Starting {operation_name}...")
+    logger.info(f"{operation_name} started", extra={
+        "operation": operation_name,
+        "status": "started"
+    })
     
     try:
         yield
     finally:
         elapsed = time.time() - start_time
-        print(f"   ✓ {operation_name} completed in {elapsed:.2f}s")
+        logger.info(f"{operation_name} completed", extra={
+            "operation": operation_name,
+            "status": "completed",
+            "duration_seconds": round(elapsed, 2)
+        })
         
         logger.info(
             f"{operation_name} timing",

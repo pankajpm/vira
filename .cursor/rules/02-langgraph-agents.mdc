@@ -37,14 +37,14 @@ class MyAgentState(TypedDict, total=False):
 
 def node1(state: MyAgentState) -> MyAgentState:
     """First processing step."""
-    logger.info("Step 1: Processing", extra={"phase": "node1"})
+    logger.info("Node started", extra={"phase": "node1", "status": "started"})
     
     try:
         # Your logic here
         state["result"] = process(state["input_data"])
-        logger.info("Step 1 complete", extra={"phase": "node1"})
+        logger.info("Node completed", extra={"phase": "node1", "status": "completed"})
     except Exception as e:
-        logger.error(f"Step 1 failed: {e}", extra={"phase": "node1"})
+        logger.error("Node failed", extra={"phase": "node1", "status": "failed", "error": str(e)})
         state["error"] = str(e)
     
     return state
@@ -53,7 +53,9 @@ def node1(state: MyAgentState) -> MyAgentState:
 def should_continue(state: MyAgentState) -> Literal["next_node", "end"]:
     """Determine next step based on state."""
     if state.get("error"):
+        logger.info("Routing to end due to error", extra={"phase": "routing"})
         return "end"
+    logger.info("Routing to next node", extra={"phase": "routing"})
     return "next_node"
 
 
@@ -95,7 +97,7 @@ if __name__ == "__main__":
     graph = create_agent_graph()
     initial_state: MyAgentState = {"input_data": "test"}
     result = graph.invoke(initial_state)
-    print(result)
+    logger.info("Graph execution completed", extra={"result": result})
 ```
 
 ---
@@ -199,9 +201,9 @@ def node_name(state: AgentState) -> AgentState:
     return state
 ```
 
-### Add Observability with Structured Logging
+### [CRITICAL] Add Observability with Structured Logging
 
-Use structured logging with semantic phase tags:
+Use structured logging with semantic phase tags for all operations:
 
 ```python
 import logging
@@ -209,35 +211,32 @@ logger = logging.getLogger(__name__)
 
 def research_node(state: AgentState) -> AgentState:
     """Conduct research to fill information gaps."""
-    logger.info("Running research", extra={"phase": "research"})
+    logger.info("Research started", extra={"phase": "research", "status": "started"})
     
     gaps = state.get("information_gaps", [])
-    logger.info("Found information gaps", extra={"phase": "research", "gaps_count": len(gaps)})
+    logger.info("Information gaps identified", extra={
+        "phase": "research", 
+        "gaps_count": len(gaps),
+        "gaps": gaps
+    })
     
     try:
         results = conduct_research(gaps)
-        logger.info("Research complete", extra={"phase": "research", "results_count": len(results)})
+        logger.info("Research completed", extra={
+            "phase": "research", 
+            "status": "completed",
+            "results_count": len(results)
+        })
         state["research_results"] = results
     except Exception as e:
-        logger.error("Research failed", extra={"phase": "research", "error": str(e)})
+        logger.error("Research failed", extra={
+            "phase": "research", 
+            "status": "failed",
+            "error": str(e)
+        }, exc_info=True)
         state["error"] = str(e)
     
     return state
-```
-
-**Optional Console Formatter** (for development):
-```python
-class EmojiConsoleFormatter(logging.Formatter):
-    PHASE_ICONS = {
-        "analysis": "🔍",
-        "research": "🔬", 
-        "reflection": "🤔",
-    }
-    
-    def format(self, record):
-        phase = record.__dict__.get("phase", "")
-        icon = self.PHASE_ICONS.get(phase, "")
-        return f"{icon} {record.getMessage()}" if icon else record.getMessage()
 ```
 
 **Standard Phase Names**:
@@ -245,23 +244,35 @@ class EmojiConsoleFormatter(logging.Formatter):
 - `research` - Research operations
 - `reflection` - Reflection/thinking
 - `regeneration` - Regeneration/retry
+- `routing` - Conditional routing decisions
+- `processing` - General processing operations
 
-### Handle Errors Gracefully
+**Standard Status Values**:
+- `started` - Operation has begun
+- `completed` - Operation finished successfully
+- `failed` - Operation encountered an error
+- `warning` - Operation completed with warnings
+
+### [CRITICAL] Handle Errors Gracefully
 
 Never raise exceptions that break the graph. Set `state["error"]` instead.
 
 ```python
 def analysis_node(state: AgentState) -> AgentState:
     """Perform alignment analysis."""
-    print("🔍 Running analysis...")
+    logger.info("Analysis started", extra={"phase": "analysis", "status": "started"})
     
     try:
         result = perform_analysis(state["plan_summary"])
         state["analysis_result"] = result
-        print("   ✓ Analysis complete")
+        logger.info("Analysis completed", extra={"phase": "analysis", "status": "completed"})
         
     except Exception as e:
-        print(f"   ⚠️  Analysis error: {e}")
+        logger.error("Analysis failed", extra={
+            "phase": "analysis", 
+            "status": "failed",
+            "error": str(e)
+        }, exc_info=True)
         state["error"] = str(e)
         state["analysis_result"] = None
         # Return state to allow graph to continue
@@ -375,7 +386,7 @@ result = graph.invoke(initial_state)
 
 ## Conditional Routing
 
-### Router Function Pattern
+### [IMPORTANT] Router Function Pattern
 
 Router functions determine the next node based on state.
 
@@ -393,15 +404,29 @@ def should_reflect_again(state: AgentState) -> Literal["reflection", "end"]:
     max_iterations = 3
     
     if iteration >= max_iterations:
-        print(f"   🛑 Max iterations ({max_iterations}) reached")
+        logger.info("Max iterations reached", extra={
+            "phase": "routing",
+            "iteration": iteration,
+            "max_iterations": max_iterations,
+            "route": "end"
+        })
         return "end"
     
     confidence = state.get("overall_confidence", 1.0)
     if confidence < 0.7:
-        print(f"   🔄 Low confidence ({confidence:.2f}) - reflecting again")
+        logger.info("Low confidence - continuing reflection", extra={
+            "phase": "routing",
+            "confidence": confidence,
+            "iteration": iteration,
+            "route": "reflection"
+        })
         return "reflection"
     
-    print(f"   ✓ High confidence ({confidence:.2f}) - ending")
+    logger.info("High confidence - ending workflow", extra={
+        "phase": "routing",
+        "confidence": confidence,
+        "route": "end"
+    })
     return "end"
 ```
 
@@ -527,7 +552,11 @@ def analysis_node(state: AgentState) -> AgentState:
 def router_with_error_handling(state: AgentState) -> Literal["continue", "end"]:
     """Router that handles error states."""
     if state.get("error"):
-        print("   ⚠️  Error detected - ending gracefully")
+        logger.warning("Error detected - ending gracefully", extra={
+            "phase": "routing",
+            "error": state.get("error"),
+            "route": "end"
+        })
         return "end"
     
     return "continue"
@@ -546,11 +575,17 @@ def critical_node(state: AgentState) -> AgentState:
     
     if missing:
         error_msg = f"Missing required fields: {missing}"
-        print(f"   ❌ {error_msg}")
+        logger.error("State validation failed", extra={
+            "phase": "validation",
+            "status": "failed",
+            "missing_fields": missing,
+            "error": error_msg
+        })
         state["error"] = error_msg
         return state
     
     # Proceed with operation
+    logger.info("State validation passed", extra={"phase": "validation"})
     ...
     return state
 ```
@@ -633,12 +668,38 @@ def create_reflection_graph():
 
 ---
 
+---
+
+## Cross-LLM Compatibility
+
+### Version Requirements
+- **LangGraph**: 0.2.x (these patterns are for 0.2.x API)
+- **LangChain Core**: Latest stable
+- **Python**: 3.10+
+
+### Known API Variations
+LangGraph API has evolved. If generated code doesn't match:
+1. Check installed version: `pip show langgraph`
+2. Refer to the complete template at top of this file
+3. Use `StateGraph` not `Graph` (v0.2.x pattern)
+
+### LLM-Specific Guidance
+If uncertain about LangGraph API, use the complete template provided above.
+All examples in this file use LangGraph 0.2.x API.
+
+Template prevents hallucination - copy it verbatim for new agents.
+
+### Verification Prompt for AI
+"Confirm you're using LangGraph 0.2.x API with StateGraph and the complete template from this file"
+
+---
+
 ## Summary
 
 LangGraph agents in VIRA follow these core principles:
 1. **Type-safe state** with TypedDict
 2. **Graceful error handling** with state["error"]
-3. **Observable execution** with emoji logging
+3. **Observable execution** with structured logging
 4. **Clear routing logic** with Literal types
 5. **Single responsibility** nodes
 6. **Compiled graphs** before execution

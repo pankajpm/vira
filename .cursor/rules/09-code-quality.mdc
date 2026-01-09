@@ -131,9 +131,9 @@ ruff check --select F401 --fix src/
 autoflake --remove-all-unused-imports --in-place src/**/*.py
 ```
 
-### Remove Debug Print Statements
+### [IMPORTANT] Remove Debug Print Statements
 
-Remove debug prints before committing (except agent progress prints).
+Remove debug prints before committing. Use structured logging instead.
 
 ```python
 # BAD - Debug prints left in code
@@ -143,21 +143,25 @@ def calculate_score(items: list) -> float:
     print(f"DEBUG: total = {total}")  # Remove this
     return total / len(items)
 
-# GOOD - Use logging for debugging
+# GOOD - Use structured logging
 import logging
 logger = logging.getLogger(__name__)
 
 def calculate_score(items: list) -> float:
-    logger.debug(f"Calculating score for {len(items)} items")
+    logger.debug("Calculating score", extra={"item_count": len(items)})
     total = sum(item.score for item in items)
-    logger.debug(f"Total score: {total}")
+    logger.debug("Score calculated", extra={"total": total, "count": len(items)})
     return total / len(items)
 
-# EXCEPTION - Agent progress prints are OK
+# CRITICAL - Agent nodes must use structured logging
 def research_node(state: AgentState) -> AgentState:
-    print("🔬 Running research...")  # Keep - user-facing progress
+    logger.info("Research started", extra={"phase": "research", "status": "started"})
     results = conduct_research(state["gaps"])
-    print(f"   ✓ Found {len(results)} results")  # Keep - user-facing
+    logger.info("Research completed", extra={
+        "phase": "research", 
+        "status": "completed",
+        "results_count": len(results)
+    })
     return state
 ```
 
@@ -329,40 +333,61 @@ repos:
 
 ## File Organization
 
-### Prefer Focused Files (Guideline: ~500 lines)
+### [GUIDANCE] File Organization Decision Criteria
 
-**Target**: Files under 500 lines are easier to understand and maintain.
+**Size is a symptom, not the problem**. Split based on responsibilities, not line count.
 
-**When to split**:
-- File has multiple distinct responsibilities
-- Different domains (retrieval vs. formatting vs. validation)
-- Different change frequencies (config vs. business logic)
-- Functionality can be independently tested
+**Split a file if ANY of these are true**:
+1. **Multiple distinct responsibilities**: File handles both retrieval AND formatting AND validation
+2. **Independent change patterns**: Config changes independently from business logic
+3. **Can name splits meaningfully**: Can create clear names (not "helpers" or "utils")
+4. **Scrolling past 3+ screens**: Frequently jumping between distant parts of file
+5. **Domain separation**: Different domains mixed (e.g., API logic + database schema)
 
-**When NOT to split**:
-- Functions share complex state that's hard to pass around
-- File is a complete, cohesive state machine
-- Splitting would require extensive parameter passing
-- File represents a single, well-defined concept
+**Keep together if ALL of these are true**:
+1. **Single cohesive concept**: Represents one state machine or workflow
+2. **Shared complex state**: Functions need same complex state that's hard to pass
+3. **Parameter threading required**: Splitting requires passing 5+ parameters everywhere
+4. **Well-defined unit**: File has clear single purpose despite size
 
-**Indicators you should split**:
-- Struggling to name the file (sign it does too much)
-- Scrolling frequently between distant parts of file
-- Only touching one section at a time
+**Examples**:
 
-**Example of good splitting**:
 ```
-# GOOD - Focused files
+# GOOD: Split by responsibility (even if small files)
 agents/
-├── state.py          # State definitions only
-├── reflection.py     # Reflection agent only
-├── research.py       # Research agent only
-└── graph.py          # Graph orchestration only
+├── state.py          # State definitions (50 lines)
+├── reflection.py     # Reflection agent (200 lines)
+├── research.py       # Research agent (250 lines)
+└── graph.py          # Graph orchestration (300 lines)
 
-# BAD - Mixed concerns
+# ALSO GOOD: Large cohesive file
 agents/
-└── agents.py         # Everything in one file (1000+ lines)
+└── committee.py      # Complete committee workflow (800 lines)
+                      # Single state machine, cohesive unit
+
+# BAD: Split arbitrarily by line count
+agents/
+├── reflection_part1.py  # First 500 lines
+├── reflection_part2.py  # Next 500 lines
+└── reflection_helpers.py  # Random utilities
+
+# BAD: Everything mixed together
+agents/
+└── agents.py         # All agents + state + routing + utils (2000+ lines)
 ```
+
+**Decision tree**:
+1. Can you describe the file's purpose in one sentence? 
+   - Yes → Keep together (even if large)
+   - No → Split it
+
+2. Do changes in one section require changes in another?
+   - Always → Keep together
+   - Rarely → Split it
+
+3. Could someone work on this section without understanding the rest?
+   - Yes → Split it
+   - No → Keep together
 
 ### Use __init__.py for Clean Imports
 

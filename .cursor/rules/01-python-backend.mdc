@@ -384,6 +384,39 @@ from .state import AgentState
 
 ---
 
+---
+
+## Cross-LLM Compatibility
+
+### Auto-Corrected by Tooling
+LLMs can use alternative syntax - tooling will normalize:
+- `Optional[str]` → `str | None` (ruff UP007 auto-converts)
+- Import order: isort handles automatically
+- Code formatting: black handles style
+
+### Version Requirements
+- **Python**: 3.10+ (required for modern union syntax)
+- **Pydantic**: 2.x (v1 syntax is deprecated)
+  - Old: `from pydantic import BaseSettings`
+  - New: `from pydantic_settings import BaseSettings`
+- **FastAPI**: 0.100+
+- **LangChain**: Latest stable
+
+### LLM-Specific Guidance
+If LLM generates `Optional[str]` - accept it, ruff will auto-fix.
+If uncertain about Pydantic v2 API, use this import check:
+```python
+try:
+    from pydantic_settings import BaseSettings  # v2
+except ImportError:
+    from pydantic import BaseSettings  # v1 fallback
+```
+
+### Verification Prompt for AI
+"Confirm you're using: Python 3.10+ syntax, Pydantic v2, and async/await for I/O"
+
+---
+
 ## Summary
 
 These rules ensure type-safe, performant, and maintainable Python backend code for VIRA. Always prioritize async patterns, proper type hints, and structured error handling.
