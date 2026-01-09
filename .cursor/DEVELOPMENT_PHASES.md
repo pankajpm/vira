@@ -299,12 +299,13 @@ def test_my_node_success():
     state = {"input_data": "test"}
     result = my_node(state)
     assert "result" in result
-    assert result["error"] is None
+    assert result.get("error") is None
 
 def test_my_node_missing_input():
     """Test node handles missing input."""
     state = {}
     result = my_node(state)
+    assert "error" in result
     assert result["error"] is not None
 ```
 
