@@ -1,0 +1,593 @@
+# Testing Patterns
+
+**Version**: 2.1  
+**Last Updated**: January 8, 2026  
+**Scope**: Pytest, mocking, agent testing, frontend testing
+
+---
+
+## Python Testing with Pytest
+
+### [CRITICAL] Mock LLM Calls with Recorded Responses
+
+Never make actual LLM API calls in tests. Use pre-recorded responses.
+
+```python
+import pytest
+from unittest.mock import AsyncMock, patch
+from langchain_core.messages import AIMessage
+
+# Test fixture with recorded LLM response
+@pytest.fixture
+def mock_llm_response():
+    """Pre-recorded LLM response for testing."""
+    return AIMessage(content='{"aligns": [], "gaps": [], "confidence": 0.8}')
+
+# Test using the mock
+@pytest.mark.asyncio
+async def test_analysis_node(mock_llm_response):
+    """Test analysis node with mocked LLM."""
+    with patch('vira.agents.analysis.llm') as mock_llm:
+        mock_llm.ainvoke = AsyncMock(return_value=mock_llm_response)
+        
+        state = {
+            "company_name": "Test Corp",
+            "plan_summary": "AI platform"
+        }
+        
+        result = await analysis_node(state)
+        
+        assert "analysis_result" in result
+        assert result["error"] is None
+        mock_llm.ainvoke.assert_called_once()
+```
+
+### [CRITICAL] Test LangGraph State Transitions
+
+Test each node in isolation and verify state changes.
+
+```python
+import pytest
+from vira.agents.state import AgentState
+from vira.agents.reflection import reflection_node
+
+def test_reflection_node_success():
+    """Test reflection node updates state correctly."""
+    # Arrange
+    input_state: AgentState = {
+        "company_name": "Test Corp",
+        "initial_explanation": {"aligns": [], "gaps": []},
+        "initial_docs": []
+    }
+    
+    # Act
+    output_state = reflection_node(input_state)
+    
+    # Assert
+    assert "reflection_result" in output_state
+    assert output_state["error"] is None
+    assert "overall_confidence" in output_state
+    assert 0.0 <= output_state["overall_confidence"] <= 1.0
+
+def test_reflection_node_handles_missing_fields():
+    """Test reflection node handles missing required fields."""
+    # Arrange
+    input_state: AgentState = {
+        "company_name": "Test Corp"
+        # Missing initial_explanation
+    }
+    
+    # Act
+    output_state = reflection_node(input_state)
+    
+    # Assert
+    assert output_state["error"] is not None
+    assert "missing" in output_state["error"].lower()
+```
+
+### [CRITICAL] Test Routing Logic
+
+Test all routing decisions with various state combinations.
+
+```python
+from typing import Literal
+from vira.agents.graph import should_research
+
+def test_should_research_low_confidence():
+    """Test routing to research when confidence is low."""
+    state: AgentState = {
+        "overall_confidence": 0.5,
+        "iteration_count": 0
+    }
+    
+    result = should_research(state)
+    
+    assert result == "research"
+
+def test_should_research_high_confidence():
+    """Test routing to end when confidence is high."""
+    state: AgentState = {
+        "overall_confidence": 0.9,
+        "iteration_count": 0
+    }
+    
+    result = should_research(state)
+    
+    assert result == "end"
+
+def test_should_research_max_iterations():
+    """Test routing to end when max iterations reached."""
+    state: AgentState = {
+        "overall_confidence": 0.5,
+        "iteration_count": 3  # Max iterations
+    }
+    
+    result = should_research(state)
+    
+    assert result == "end"
+```
+
+### [IMPORTANT] Pytest Fixtures for Agent State
+
+Create reusable fixtures for common state configurations.
+
+```python
+import pytest
+from vira.agents.state import AgentState
+
+@pytest.fixture
+def base_agent_state() -> AgentState:
+    """Base agent state for testing."""
+    return {
+        "company_name": "Test Corp",
+        "plan_summary": "AI-powered analytics platform",
+        "query": "Analyze alignment with a16z",
+        "iteration_count": 0
+    }
+
+@pytest.fixture
+def state_with_analysis(base_agent_state) -> AgentState:
+    """Agent state after initial analysis."""
+    return {
+        **base_agent_state,
+        "initial_explanation": {
+            "aligns": ["Strong technical team"],
+            "gaps": ["Unclear market size"],
+            "confidence": 0.6
+        }
+    }
+
+@pytest.fixture
+def state_with_error() -> AgentState:
+    """Agent state with error condition."""
+    return {
+        "company_name": "Test Corp",
+        "error": "API call failed"
+    }
+
+# Usage
+def test_with_fixtures(state_with_analysis):
+    """Test using pre-configured state fixture."""
+    assert "initial_explanation" in state_with_analysis
+    assert state_with_analysis["iteration_count"] == 0
+```
+
+### [IMPORTANT] Property-Based Testing for State Validation
+
+Use Hypothesis for property-based testing of state transitions.
+
+```python
+from hypothesis import given, strategies as st
+from vira.agents.state import AgentState
+
+@given(
+    confidence=st.floats(min_value=0.0, max_value=1.0),
+    iteration=st.integers(min_value=0, max_value=10)
+)
+def test_routing_decision_properties(confidence, iteration):
+    """Test routing decisions maintain invariants."""
+    state: AgentState = {
+        "overall_confidence": confidence,
+        "iteration_count": iteration
+    }
+    
+    result = should_research(state)
+    
+    # Property: result is always one of valid routes
+    assert result in ["research", "end"]
+    
+    # Property: max iterations always routes to end
+    if iteration >= 3:
+        assert result == "end"
+```
+
+---
+
+## Integration Testing
+
+### [CRITICAL] Agent Workflow End-to-End Tests
+
+Test complete agent workflows from start to finish.
+
+```python
+import pytest
+from vira.agents.graph import create_reflection_graph
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_reflection_agent_complete_workflow():
+    """Test complete reflection agent workflow."""
+    # Arrange
+    graph = create_reflection_graph()
+    initial_state = {
+        "company_name": "Test Corp",
+        "plan_summary": "AI platform for analytics",
+        "query": "Analyze alignment",
+        "iteration_count": 0
+    }
+    
+    # Act
+    with patch_llm_calls():
+        final_state = await graph.ainvoke(initial_state)
+    
+    # Assert
+    assert "final_explanation" in final_state
+    assert "overall_confidence" in final_state
+    assert final_state["error"] is None or "error" not in final_state
+    assert final_state["iteration_count"] >= 0
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_workflow_handles_errors_gracefully():
+    """Test workflow continues despite node errors."""
+    graph = create_reflection_graph()
+    initial_state = {
+        "company_name": "Test Corp",
+        # Missing required fields to trigger error
+    }
+    
+    # Act - should not raise
+    final_state = await graph.ainvoke(initial_state)
+    
+    # Assert - error captured in state
+    assert "error" in final_state
+    assert final_state["error"] is not None
+```
+
+### [IMPORTANT] Test with Different LLM Temperatures
+
+Verify behavior with different LLM configurations.
+
+```python
+@pytest.mark.parametrize("temperature,expected_variability", [
+    (0.0, "low"),   # Deterministic
+    (0.7, "medium"), # Balanced
+    (1.0, "high")   # Creative
+])
+async def test_analysis_with_temperature(temperature, expected_variability):
+    """Test analysis with different LLM temperatures."""
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=temperature)
+    
+    # Run analysis multiple times
+    results = [
+        await analyze_with_llm(test_input, llm)
+        for _ in range(3)
+    ]
+    
+    # Verify behavior matches expected variability
+    if temperature == 0.0:
+        # Should be identical or very similar
+        assert len(set(r["summary"] for r in results)) <= 2
+```
+
+---
+
+## Frontend Testing with React Testing Library
+
+### [CRITICAL] Test User Interactions
+
+Test components respond correctly to user actions.
+
+```typescript
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { ChatPanel } from './ChatPanel';
+
+describe('ChatPanel', () => {
+  test('sends message when user submits input', async () => {
+    const mockOnSend = jest.fn();
+    
+    render(<ChatPanel onSendMessage={mockOnSend} />);
+    
+    // Type message
+    const input = screen.getByPlaceholderText(/type your message/i);
+    fireEvent.change(input, { target: { value: 'Test message' } });
+    
+    // Submit
+    const button = screen.getByRole('button', { name: /send/i });
+    fireEvent.click(button);
+    
+    // Verify
+    await waitFor(() => {
+      expect(mockOnSend).toHaveBeenCalledWith('Test message');
+    });
+    
+    // Verify input cleared
+    expect(input).toHaveValue('');
+  });
+});
+```
+
+### [CRITICAL] Test Component State Updates
+
+Verify state changes reflect in UI correctly.
+
+```typescript
+import { render, screen, waitFor } from '@testing-library/react';
+import { AnalysisResult } from './AnalysisResult';
+
+describe('AnalysisResult', () => {
+  test('displays loading state', () => {
+    render(<AnalysisResult isLoading={true} result={null} />);
+    
+    expect(screen.getByText(/analyzing/i)).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  });
+  
+  test('displays result when analysis completes', async () => {
+    const result = {
+      company_name: 'Test Corp',
+      aligns: ['Strong team'],
+      gaps: ['Market unclear'],
+      overall_confidence: 0.85
+    };
+    
+    const { rerender } = render(
+      <AnalysisResult isLoading={true} result={null} />
+    );
+    
+    // Simulate analysis completion
+    rerender(<AnalysisResult isLoading={false} result={result} />);
+    
+    await waitFor(() => {
+      expect(screen.getByText('Test Corp')).toBeInTheDocument();
+      expect(screen.getByText(/strong team/i)).toBeInTheDocument();
+      expect(screen.getByText(/85%/i)).toBeInTheDocument();
+    });
+  });
+});
+```
+
+### [IMPORTANT] Mock API Calls with MSW
+
+Use Mock Service Worker for API mocking in tests.
+
+```typescript
+import { rest } from 'msw';
+import { setupServer } from 'msw/node';
+import { render, screen, waitFor } from '@testing-library/react';
+
+// Setup MSW server
+const server = setupServer(
+  rest.post('/api/analyze', (req, res, ctx) => {
+    return res(
+      ctx.json({
+        aligns: ['Strong team'],
+        gaps: ['Market unclear'],
+        confidence: 0.85
+      })
+    );
+  })
+);
+
+beforeAll(() => server.listen());
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
+
+test('fetches and displays analysis results', async () => {
+  render(<AnalysisPanel sessionId="123" />);
+  
+  // Trigger analysis
+  const button = screen.getByRole('button', { name: /analyze/i });
+  fireEvent.click(button);
+  
+  // Wait for results
+  await waitFor(() => {
+    expect(screen.getByText(/strong team/i)).toBeInTheDocument();
+  });
+});
+```
+
+### [IMPORTANT] Test WebSocket Connections
+
+Test WebSocket state management and cleanup.
+
+```typescript
+import { render, waitFor } from '@testing-library/react';
+import { WS } from 'jest-websocket-mock';
+
+describe('WebSocket integration', () => {
+  let server: WS;
+  
+  beforeEach(async () => {
+    server = new WS('ws://localhost:8001/ws/123');
+  });
+  
+  afterEach(() => {
+    WS.clean();
+  });
+  
+  test('connects to WebSocket on mount', async () => {
+    render(<ChatPanel sessionId="123" />);
+    
+    await waitFor(() => {
+      expect(server).toHaveReceivedMessages([]);
+    });
+    
+    // Verify connection established
+    expect(server.server.clients()).toHaveLength(1);
+  });
+  
+  test('closes WebSocket on unmount', async () => {
+    const { unmount } = render(<ChatPanel sessionId="123" />);
+    
+    await server.connected;
+    
+    unmount();
+    
+    await waitFor(() => {
+      expect(server.server.clients()).toHaveLength(0);
+    });
+  });
+  
+  test('handles incoming messages', async () => {
+    render(<ChatPanel sessionId="123" />);
+    
+    await server.connected;
+    
+    // Send message from server
+    server.send(JSON.stringify({
+      type: 'analysis_complete',
+      result: { confidence: 0.85 }
+    }));
+    
+    // Verify UI updates
+    await waitFor(() => {
+      expect(screen.getByText(/85%/i)).toBeInTheDocument();
+    });
+  });
+});
+```
+
+---
+
+## Test Organization
+
+### [GUIDANCE] Test File Structure
+
+Organize tests to mirror source code structure.
+
+```
+tests/
+├── unit/
+│   ├── agents/
+│   │   ├── test_reflection.py
+│   │   ├── test_research.py
+│   │   └── test_graph.py
+│   ├── rag/
+│   │   └── test_pipeline.py
+│   └── backend/
+│       └── test_api.py
+├── integration/
+│   ├── test_reflection_workflow.py
+│   └── test_api_integration.py
+└── e2e/
+    └── test_complete_analysis.py
+```
+
+### [GUIDANCE] Test Naming Conventions
+
+Use descriptive test names that indicate what is being tested.
+
+```python
+# GOOD - Descriptive names
+def test_reflection_node_identifies_information_gaps():
+    pass
+
+def test_router_selects_research_when_confidence_below_threshold():
+    pass
+
+def test_analysis_handles_missing_company_name_gracefully():
+    pass
+
+# BAD - Vague names
+def test_reflection():
+    pass
+
+def test_router():
+    pass
+
+def test_analysis():
+    pass
+```
+
+### [IMPORTANT] Test Markers
+
+Use pytest markers to categorize tests.
+
+```python
+import pytest
+
+@pytest.mark.unit
+def test_single_function():
+    """Unit test - fast, isolated."""
+    pass
+
+@pytest.mark.integration
+async def test_full_workflow():
+    """Integration test - slower, multiple components."""
+    pass
+
+@pytest.mark.slow
+@pytest.mark.integration
+async def test_with_real_api():
+    """Slow integration test with external dependencies."""
+    pass
+
+# Run specific categories
+# pytest -m unit          # Fast tests only
+# pytest -m "not slow"    # Skip slow tests
+# pytest -m integration   # Integration tests only
+```
+
+---
+
+## Coverage and Quality
+
+### [IMPORTANT] Maintain Test Coverage
+
+Aim for high coverage on critical paths.
+
+```bash
+# Run with coverage
+pytest --cov=vira --cov-report=html --cov-report=term
+
+# Coverage targets
+# Critical paths (agents, routing): 90%+
+# Business logic: 80%+
+# Utilities: 70%+
+```
+
+### [GUIDANCE] Test Pyramid
+
+Follow the test pyramid principle.
+
+```
+        /\
+       /E2E\       <- Few (slow, expensive)
+      /------\
+     /Integration\ <- More (medium speed)
+    /------------\
+   /    Unit      \ <- Most (fast, cheap)
+  /----------------\
+```
+
+**Distribution**:
+- 70% Unit tests (fast, isolated)
+- 20% Integration tests (moderate speed)
+- 10% E2E tests (slow, full system)
+
+---
+
+## Summary
+
+Testing in VIRA follows these principles:
+1. **Mock LLM calls** - Use recorded responses
+2. **Test state transitions** - Verify each node independently
+3. **Test routing logic** - Cover all decision paths
+4. **Integration tests** - Test complete workflows
+5. **Frontend testing** - Test user interactions and state
+6. **Organize by type** - Unit, integration, E2E
+7. **Use markers** - Categorize for selective running
+8. **Maintain coverage** - Focus on critical paths
+
+These patterns ensure reliable, maintainable test suites that catch bugs early without slowing down development.
