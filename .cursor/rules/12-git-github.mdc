@@ -6,18 +6,40 @@
 
 ---
 
+## [CRITICAL] AI Assistant Pre-Commit Review Protocol
+
+**IMPORTANT**: When user requests a commit, the AI assistant MUST:
+
+1. **Check for staged/unstaged changes**: Run `git diff --staged` or `git diff`
+2. **Review against cursor rules**: Check for violations of CRITICAL and IMPORTANT rules
+3. **Report findings**: List any issues before proceeding with commit
+4. **Wait for approval**: Only proceed after user acknowledges review or fixes issues
+
+**Common checks**:
+- No print statements in production code
+- TODOs have issue references (Phase 2+)
+- Proper error handling in LangGraph nodes
+- Type hints using modern syntax (`str | None`)
+- Structured logging instead of emojis
+- No commented code
+
+**If issues found**: Suggest fixes and wait. Don't auto-commit with violations.
+
+---
+
 ## Cross-LLM Compatibility
 
 ### Conventions Used
 - Conventional Commits specification v1.0.0
 - GitHub Flow branching strategy
 - Semantic Versioning for releases
+- Automated AI pre-commit review
 
 ### LLM-Specific Guidance
-When creating commits or PRs, follow the formats exactly as specified. These conventions are widely adopted and help maintain clean git history.
+When creating commits or PRs, follow the formats exactly as specified. Always review code changes against cursor rules before committing.
 
 ### Verification Prompt for AI
-"Confirm you're using Conventional Commits format for commit messages and including appropriate phase context in PR descriptions."
+"Confirm you're performing pre-commit review of changes and using Conventional Commits format for commit messages."
 
 ---
 
@@ -474,30 +496,47 @@ if 'docs' not in state or not state['docs']:
 
 ### Before Every Commit
 
-Run these commands:
+**AI ASSISTANT: Always perform these steps automatically when user is about to commit:**
 
 ```bash
-# 1. Format code
+# 1. Review changes against rules
+git diff --staged  # Or git diff if nothing staged
+# Check for:
+# - CRITICAL rule violations
+# - Print statements
+# - TODOs without issue refs (Phase 2+)
+# - Proper type hints
+# - Error handling patterns
+# Report issues before proceeding
+
+# 2. Format code
 black src/ tests/
 isort src/ tests/
 
-# 2. Check linting
+# 3. Check linting
 ruff check --fix src/ tests/
 
-# 3. Type check (optional but recommended)
+# 4. Type check (optional but recommended)
 mypy src/
 
-# 4. Review changes
+# 5. Manual review
 git diff
 
-# 5. Check for violations
+# 6. Check for violations
 rg "print\(" --type py           # Should find none
 rg "TODO(?!\(#\d+\))" --type py  # Should find none in non-prototype
 rg "Optional\[" --type py        # Should find none
 
-# 6. Commit
+# 7. Commit (only after review passed)
 git commit -m "feat(scope): description"
 ```
+
+**For AI Assistant**: When user says "commit", "create commit", or similar:
+1. First run `git diff` or `git diff --staged`
+2. Analyze against cursor rules
+3. Report any issues found
+4. If no issues or user approves: proceed with commit
+5. If issues found: suggest fixes and wait for user to fix
 
 ### Automated Pre-Commit Hooks
 
@@ -513,6 +552,8 @@ pre-commit install
 # Run manually
 pre-commit run --all-files
 ```
+
+**Note**: Pre-commit hooks run automatically but only check formatting/linting. AI assistant review checks semantic issues and rule compliance.
 
 **Configuration** (add to `.pre-commit-config.yaml`):
 
