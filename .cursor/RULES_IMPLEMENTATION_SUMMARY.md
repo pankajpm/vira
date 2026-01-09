@@ -127,18 +127,21 @@ Successfully implemented a comprehensive, modular cursor rules system for the VI
 
 ## Project-Specific Conventions Documented
 
-### Emoji Progress Indicators
+### Structured Logging Standards
 ```python
-🔍 - Analysis/search operations
-🔬 - Research operations
-🤔 - Reflection/thinking
-♻️  - Regeneration/retry
-✓ - Success
-⚠️  - Warning
-❌ - Error
-📊 - Metrics/stats
-📋 - Lists/items
-📚 - Data/results
+# Standard phase tags
+"analysis"     - Analysis/search operations
+"research"     - Research operations
+"reflection"   - Reflection/thinking
+"regeneration" - Regeneration/retry
+"routing"      - Conditional routing
+"processing"   - General processing
+
+# Standard status values
+"started"    - Operation begun
+"completed"  - Operation successful
+"failed"     - Operation encountered error
+"warning"    - Operation completed with warnings
 ```
 
 ### Iteration Markers
